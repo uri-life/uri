@@ -205,9 +205,15 @@ _apply_features() {
             continue
         fi
 
-        # 패치가 비어있으면 스킵
+        # 패치가 비어있으면 브랜치만 생성
         if [ ! -s "$_patch_file" ]; then
-            warn "패치 파일이 비어있습니다: $_feature (건너뜁니다)"
+            warn "패치 파일이 비어있습니다: $_feature (빈 브랜치 생성)"
+            _branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_feature")
+            if git_branch_exists "$_dest" "$_branch"; then
+                git_delete_branch "$_dest" "$_branch"
+            fi
+            git_create_branch_at "$_dest" "$_branch"
+            _last_branch="$_branch"
             _index=$((_index + 1))
             continue
         fi
