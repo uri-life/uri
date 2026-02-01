@@ -24,6 +24,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/commands/expand.sh"
 . "${LIB_DIR}/commands/collapse.sh"
 . "${LIB_DIR}/commands/apply.sh"
+. "${LIB_DIR}/commands/migrate.sh"
 
 # 버전
 VERSION="0.1.0"
@@ -45,6 +46,7 @@ uri - Uri Reconstruction Instrument v${VERSION}
   expand     feature를 Mastodon 소스에 적용
   collapse   Mastodon 소스에서 feature를 패치 파일로 추출
   apply      uri 버전의 모든 feature를 일괄 적용
+  migrate    브랜치 기반 패치 세트에서 마이그레이션
 
 전역 옵션:
   -h, --help       이 도움말을 출력합니다
@@ -119,6 +121,10 @@ main() {
         apply)
             shift
             cmd_apply "$@"
+            ;;
+        migrate)
+            shift
+            cmd_migrate "$@"
             ;;
         *)
             die "알 수 없는 명령어: $1. 'uri --help'를 참조하세요."

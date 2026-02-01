@@ -18,11 +18,11 @@ git_require_repo() {
     fi
 }
 
-# 워킹 트리가 깨끗한지 확인
+# 워킹 트리가 깨끗한지 확인 (staged/modified 파일만 체크, untracked 무시)
 # 사용법: if git_is_clean "/path/to/repo"; then ...
 git_is_clean() {
     _dir="$1"
-    _status=$(git -C "$_dir" status --porcelain 2>/dev/null)
+    _status=$(git -C "$_dir" status --porcelain --untracked-files=no 2>/dev/null)
     [ -z "$_status" ]
 }
 
@@ -132,8 +132,11 @@ git_format_patch() {
     _dir="$1"
     _range="$2"
     _output="$3"
+    # --binary: 바이너리 파일을 base64로 인코딩하여 패치에 포함
+    # --no-signature: Git 버전 정보를 제거하여 환경 간 일관된 출력 보장
+    # --no-stat: diffstat 헤더 (파일 변경 요약) 제거하여 깔끔한 패치 생성
     # 패치 생성 후 "From <hash>" 줄의 해시를 같은 길이의 0으로 대체
-    git -C "$_dir" format-patch --stdout "$_range" | \
+    git -C "$_dir" format-patch --binary --no-signature --no-stat --stdout "$_range" | \
         awk '/^From [0-9a-f]+ Mon Sep 17 00:00:00 2001$/ {
             gsub(/[0-9a-f]/, "0", $2)
         } { print }' > "$_output"
