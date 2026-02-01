@@ -1,0 +1,130 @@
+#!/bin/sh
+# uri - Uri Reconstruction Instrument CLI
+# Mastodon 인스턴스 패치 세트 관리 도구
+# POSIX 호환 셸 스크립트
+
+set -e
+
+# 스크립트 디렉터리 계산
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+LIB_DIR="${SCRIPT_DIR}/../lib"
+
+# 라이브러리 로드
+. "${LIB_DIR}/common.sh"
+. "${LIB_DIR}/yaml.sh"
+. "${LIB_DIR}/git.sh"
+. "${LIB_DIR}/topsort.sh"
+. "${LIB_DIR}/inherit.sh"
+. "${LIB_DIR}/state.sh"
+
+# 명령어 로드
+. "${LIB_DIR}/commands/init.sh"
+. "${LIB_DIR}/commands/add.sh"
+. "${LIB_DIR}/commands/remove.sh"
+. "${LIB_DIR}/commands/expand.sh"
+. "${LIB_DIR}/commands/collapse.sh"
+. "${LIB_DIR}/commands/apply.sh"
+
+# 버전
+VERSION="0.1.0"
+
+# 메인 도움말 출력
+usage() {
+    cat <<EOF
+uri - Uri Reconstruction Instrument v${VERSION}
+
+우리.인생 Mastodon 인스턴스의 패치 세트를 관리하기 위한 도구입니다.
+
+사용법:
+  uri <command> [options]
+
+명령어:
+  init       패치 세트 초기화
+  add        uri 버전 또는 feature 추가
+  remove     Mastodon 버전, uri 버전, 또는 feature 제거
+  expand     feature를 Mastodon 소스에 적용
+  collapse   Mastodon 소스에서 feature를 패치 파일로 추출
+  apply      uri 버전의 모든 feature를 일괄 적용
+
+전역 옵션:
+  -h, --help       이 도움말을 출력합니다
+  -v, --version    버전 정보를 출력합니다
+
+각 명령어의 상세 도움말:
+  uri <command> --help
+
+예시:
+  uri init                                          # 패치 세트 초기화
+  uri init v4.3.2                                   # 특정 버전으로 초기화
+  uri add v4.3.2 uri1.23                            # uri 버전 추가
+  uri add v4.3.2 uri1.23 custom_emoji               # feature 추가
+  uri expand v4.3.2 uri1.23 custom_emoji -d /path   # feature 적용
+  uri collapse v4.3.2 uri1.23 custom_emoji -s /path # feature 추출
+  uri apply v4.3.2 uri1.23 -d /path                 # 전체 적용
+EOF
+}
+
+# 버전 출력
+version() {
+    echo "uri version ${VERSION}"
+}
+
+# 의존성 확인
+check_dependencies() {
+    require_cmd "git" "git이 필요합니다. https://git-scm.com/"
+    require_cmd "yq" "yq가 필요합니다. https://github.com/mikefarah/yq"
+}
+
+# 메인 함수
+main() {
+    # 의존성 확인
+    check_dependencies
+
+    # 인자가 없으면 도움말 출력
+    if [ $# -eq 0 ]; then
+        usage
+        exit 0
+    fi
+
+    # 첫 번째 인자 처리
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -v|--version)
+            version
+            exit 0
+            ;;
+        init)
+            shift
+            cmd_init "$@"
+            ;;
+        add)
+            shift
+            cmd_add "$@"
+            ;;
+        remove)
+            shift
+            cmd_remove "$@"
+            ;;
+        expand)
+            shift
+            cmd_expand "$@"
+            ;;
+        collapse)
+            shift
+            cmd_collapse "$@"
+            ;;
+        apply)
+            shift
+            cmd_apply "$@"
+            ;;
+        *)
+            die "알 수 없는 명령어: $1. 'uri --help'를 참조하세요."
+            ;;
+    esac
+}
+
+# 메인 실행
+main "$@"
