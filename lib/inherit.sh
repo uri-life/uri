@@ -117,14 +117,16 @@ resolve_inheritance() {
 
     # 병합된 결과를 저장할 임시 파일
     _merged=$(make_temp)
-    yaml_create_empty "$_merged"
+    # 빈 features 객체로 초기화 (null 병합 문제 방지)
+    echo "features: {}" > "$_merged"
 
     # 순서대로 병합 (나중 것이 덮어씀)
     for _manifest in $_reversed; do
         # features 부분만 추출하여 병합
         if yaml_has "$_manifest" ".features"; then
             # 현재 manifest의 features를 병합
-            yq eval-all 'select(fileIndex == 0).features * select(fileIndex == 1).features | {"features": .}' \
+            # null 처리를 위해 // {} 사용
+            yq eval-all '(select(fileIndex == 0).features // {}) * (select(fileIndex == 1).features // {}) | {"features": .}' \
                 "$_merged" "$_manifest" > "${_merged}.tmp"
             mv "${_merged}.tmp" "$_merged"
         fi
