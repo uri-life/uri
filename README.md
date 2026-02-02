@@ -171,7 +171,7 @@ uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
 uri 버전의 모든 feature를 일괄 적용합니다.
 
 ```sh
-uri apply v4.3.2 uri1.23 --destination /path/to/mastodon
+uri apply v4.3.2 uri1.23 /path/to/mastodon
 ```
 
 ---

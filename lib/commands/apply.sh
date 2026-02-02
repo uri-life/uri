@@ -5,28 +5,30 @@
 # apply 명령 사용법 출력
 apply_usage() {
     cat <<EOF
-사용법: uri apply <mastodon_version> <uri_version> [옵션]
+사용법: uri apply <mastodon_version> <uri_version> <destination> [옵션]
+       uri apply <destination> --continue
+       uri apply <destination> --abort
 
 uri 버전의 모든 feature를 일괄 적용합니다.
 
 인자:
   mastodon_version   Mastodon 버전 (예: v4.3.2)
   uri_version        uri 버전 (예: uri1.23)
+  destination        Mastodon Git 리포지토리 경로
 
 옵션:
-  -h, --help             이 도움말을 출력합니다
-  -d, --destination DIR  Mastodon Git 리포지토리 경로 (필수)
-  --continue             충돌 해결 후 계속 진행
-  --abort                진행 중인 작업 중단 및 원복
+  -h, --help         이 도움말을 출력합니다
+  --continue         충돌 해결 후 계속 진행
+  --abort            진행 중인 작업 중단 및 원복
 
 설명:
   상속된 feature를 포함하여 uri 버전의 모든 feature를 적용합니다.
   주로 배포 목적으로 사용됩니다.
 
 예시:
-  uri apply v4.3.2 uri1.23 -d /path/to/mastodon
-  uri apply --continue -d /path/to/mastodon
-  uri apply --abort -d /path/to/mastodon
+  uri apply v4.3.2 uri1.23 /path/to/mastodon
+  uri apply /path/to/mastodon --continue
+  uri apply /path/to/mastodon --abort
 EOF
 }
 
@@ -45,10 +47,6 @@ cmd_apply() {
                 apply_usage
                 exit 0
                 ;;
-            -d|--destination)
-                shift
-                _destination="$1"
-                ;;
             --continue)
                 _continue=true
                 ;;
@@ -64,6 +62,8 @@ cmd_apply() {
                     _mastodon_ver="$1"
                 elif [ -z "$_uri_ver" ]; then
                     _uri_ver="$1"
+                elif [ -z "$_destination" ]; then
+                    _destination="$1"
                 else
                     die "인자가 너무 많습니다: $1"
                 fi
@@ -74,7 +74,7 @@ cmd_apply() {
 
     # destination 필수 확인
     if [ -z "$_destination" ]; then
-        die "--destination 옵션이 필요합니다."
+        die "destination이 필요합니다. 'uri apply --help'를 참조하세요."
     fi
 
     _destination=$(resolve_path "$_destination")
