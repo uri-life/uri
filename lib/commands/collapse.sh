@@ -98,10 +98,12 @@ _collapse_all_features() {
     _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
 
     # 의존성 포함하여 정렬된 feature 목록 (의존되는 것이 먼저)
+    # manifest에 없는 feature는 타겟만 처리
     _sorted_features=$(get_feature_with_deps "$_merged" "$_target_feature")
 
+    # manifest에 feature가 없으면 타겟 feature만 처리
     if [ -z "$_sorted_features" ]; then
-        die "feature 목록을 가져올 수 없습니다."
+        _sorted_features="$_target_feature"
     fi
 
     info "collapse할 feature 목록 (의존성 순서):"
@@ -115,8 +117,19 @@ _collapse_all_features() {
     # 삭제할 브랜치 목록
     _branches_to_delete=""
 
+    # 통계
+    _saved_count=0
+    _skipped_count=0
+
     for _feature in $_reversed_features; do
-        _collapse_single_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src" "$_merged"
+        _collapse_result=0
+        _collapse_single_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src" "$_merged" || _collapse_result=$?
+
+        case $_collapse_result in
+            0) _saved_count=$((_saved_count + 1)) ;;   # 패치 저장됨
+            1) _skipped_count=$((_skipped_count + 1)) ;; # 상속과 동일하여 건너뜀
+            *) ;;  # 에러/건너뜀 - 이미 warn 출력됨
+        esac
 
         # 브랜치 삭제 목록에 추가
         _branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_feature")
@@ -136,10 +149,16 @@ _collapse_all_features() {
         fi
     done
 
+    # 결과 출력
+    if [ "$_saved_count" -gt 0 ] || [ "$_skipped_count" -gt 0 ]; then
+        info "결과: ${_saved_count}개 저장됨, ${_skipped_count}개 건너뜀 (상속과 동일)"
+    fi
+
     success "collapse 완료!"
 }
 
 # 단일 feature 추출 (내부 함수)
+# 반환값: 0=패치 저장됨, 1=건너뜀(상속과 동일), 2=에러/건너뜀
 _collapse_single_feature() {
     _mastodon_ver="$1"
     _uri_ver="$2"
@@ -148,12 +167,13 @@ _collapse_single_feature() {
     _merged="$5"
 
     _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
+    _manifest="${_uri_dir}/manifest.yaml"
 
     # feature 브랜치 존재 확인
     _feature_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_feature")
     if ! git_branch_exists "$_src" "$_feature_branch"; then
         warn "feature 브랜치를 찾을 수 없습니다: $_feature_branch (건너뜁니다)"
-        return
+        return 2
     fi
 
     # 이전 feature 브랜치 찾기 (의존성 순서에서 바로 앞)
@@ -170,23 +190,44 @@ _collapse_single_feature() {
     _commit_count=$(git_commit_count "$_src" "${_prev_branch}..${_feature_branch}")
     if [ "$_commit_count" -eq 0 ]; then
         warn "  추출할 커밋이 없습니다."
-        return
+        return 2
     fi
 
     info "  커밋 수: $_commit_count"
 
-    # 패치 파일 경로
-    _patch_file="${_uri_dir}/${_feature}.patch"
+    # 임시 파일로 패치 추출
+    _temp_patch=$(make_temp)
+    git_format_patch "$_src" "${_prev_branch}..${_feature_branch}" "$_temp_patch"
 
-    # 패치 추출
-    git_format_patch "$_src" "${_prev_branch}..${_feature_branch}" "$_patch_file"
-
-    if [ ! -s "$_patch_file" ]; then
+    if [ ! -s "$_temp_patch" ]; then
         warn "  패치 파일이 비어있습니다."
-        return
+        return 2
+    fi
+
+    # 상속 체인에서 부모의 패치 찾기 (현재 버전 제외)
+    _inherited_patch=$(_find_inherited_patch "$_mastodon_ver" "$_uri_ver" "$_feature")
+
+    if [ -n "$_inherited_patch" ] && [ -f "$_inherited_patch" ]; then
+        # 부모 패치가 존재하면 비교
+        if _patches_are_equal "$_temp_patch" "$_inherited_patch"; then
+            info "  상속된 패치와 동일합니다. 건너뜁니다."
+            rm -f "$_temp_patch"
+            return 1
+        fi
+        info "  상속된 패치와 다릅니다. 새 패치를 저장합니다."
+    fi
+
+    # 패치 파일 저장
+    _patch_file="${_uri_dir}/${_feature}.patch"
+    mv "$_temp_patch" "$_patch_file"
+
+    # manifest에 feature가 없으면 추가
+    if ! yaml_has "$_manifest" ".features.$_feature"; then
+        _add_feature_to_manifest "$_mastodon_ver" "$_uri_ver" "$_feature"
     fi
 
     success "  패치 추출 완료: $_patch_file"
+    return 0
 }
 
 # 병합된 manifest를 사용하여 이전 feature 브랜치 찾기 (내부 함수)
@@ -220,4 +261,73 @@ _find_prev_branch_from_merged() {
 
     # 이전 feature가 없으면 태그를 베이스로 사용
     echo "$_mastodon_ver"
+}
+
+# manifest에 feature 추가 (내부 함수)
+_add_feature_to_manifest() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _feature="$3"
+
+    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
+    _manifest="${_uri_dir}/manifest.yaml"
+
+    # manifest 파일 존재 확인
+    if [ ! -f "$_manifest" ]; then
+        die "manifest 파일을 찾을 수 없습니다: $_manifest"
+    fi
+
+    # feature 추가 (기본값으로)
+    yq eval -i ".features.$_feature = {}" "$_manifest"
+    yq eval -i ".features.$_feature.name = \"$_feature\"" "$_manifest"
+    yq eval -i ".features.$_feature.description = \"\"" "$_manifest"
+
+    info "  manifest에 feature '$_feature' 추가됨"
+}
+
+# 상속 체인에서 부모의 패치 파일 찾기 (현재 버전 제외)
+# 사용법: _find_inherited_patch "v4.3.2" "uri1.23" "feature"
+_find_inherited_patch() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _feature="$3"
+
+    _current_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
+
+    # 상속 체인을 따라가며 패치 파일 찾기
+    _chain=$(get_inheritance_chain "$_mastodon_ver" "$_uri_ver")
+
+    for _manifest in $_chain; do
+        _patch_dir=$(dirname "$_manifest")
+
+        # 현재 버전은 건너뜀
+        if [ "$_patch_dir" = "$_current_dir" ]; then
+            continue
+        fi
+
+        _patch_file="${_patch_dir}/${_feature}.patch"
+
+        if [ -f "$_patch_file" ]; then
+            echo "$_patch_file"
+            return 0
+        fi
+    done
+
+    # 상속된 패치가 없으면 빈 문자열 반환 (정상 종료)
+    echo ""
+    return 0
+}
+
+# 두 패치 파일이 동일한지 비교 (메타데이터 제외, 실제 diff 내용만 비교)
+# 사용법: if _patches_are_equal "patch1" "patch2"; then ...
+_patches_are_equal() {
+    _patch1="$1"
+    _patch2="$2"
+
+    # 메타데이터 라인을 제외하고 실제 diff 내용만 비교
+    # 제외 항목: From (커밋 해시), From: (작성자), Date:, Subject:, index (blob 해시)
+    _diff1=$(grep -v -E '^(From[ :]|Date:|Subject:|index )' "$_patch1")
+    _diff2=$(grep -v -E '^(From[ :]|Date:|Subject:|index )' "$_patch2")
+
+    [ "$_diff1" = "$_diff2" ]
 }
