@@ -21,6 +21,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/commands/init.sh"
 . "${LIB_DIR}/commands/add.sh"
 . "${LIB_DIR}/commands/remove.sh"
+. "${LIB_DIR}/commands/list.sh"
 . "${LIB_DIR}/commands/expand.sh"
 . "${LIB_DIR}/commands/collapse.sh"
 . "${LIB_DIR}/commands/apply.sh"
@@ -43,6 +44,7 @@ uri - Uri Reconstruction Instrument v${VERSION}
   init       패치 세트 초기화
   add        uri 버전 또는 feature 추가
   remove     Mastodon 버전, uri 버전, 또는 feature 제거
+  list       버전, 패치, feature 목록 출력
   expand     feature를 Mastodon 소스에 적용
   collapse   Mastodon 소스에서 feature를 패치 파일로 추출
   apply      uri 버전의 모든 feature를 일괄 적용
@@ -60,6 +62,9 @@ uri - Uri Reconstruction Instrument v${VERSION}
   uri init v4.3.2                                   # 특정 버전으로 초기화
   uri add v4.3.2 uri1.23                            # uri 버전 추가
   uri add v4.3.2 uri1.23 custom_emoji               # feature 추가
+  uri list                                          # Mastodon 버전 목록
+  uri list v4.3.2                                   # uri 패치 목록
+  uri list v4.3.2 uri1.23                           # feature 목록
   uri expand v4.3.2 uri1.23 custom_emoji -d /path   # feature 적용
   uri collapse v4.3.2 uri1.23 custom_emoji -s /path # feature 추출
   uri apply v4.3.2 uri1.23 -d /path                 # 전체 적용
@@ -109,6 +114,10 @@ main() {
         remove)
             shift
             cmd_remove "$@"
+            ;;
+        list)
+            shift
+            cmd_list "$@"
             ;;
         expand)
             shift
