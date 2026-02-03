@@ -21,6 +21,7 @@ feature를 Mastodon 소스에 적용합니다.
   -h, --help         이 도움말을 출력합니다
   --continue         충돌 해결 후 계속 진행
   --abort            진행 중인 작업 중단 및 원복
+  --force            이전 apply로 생성된 버전 브랜치를 자동 삭제합니다
 
 예시:
   uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon
@@ -37,8 +38,10 @@ cmd_expand() {
     _destination=""
     _continue=false
     _abort=false
+    _force=false
 
-    # 옵션 파싱
+    # 옵션 파싱 (먼저 옵션만 처리)
+    _positional_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)
@@ -51,26 +54,45 @@ cmd_expand() {
             --abort)
                 _abort=true
                 ;;
+            --force)
+                _force=true
+                ;;
             -*)
                 die "알 수 없는 옵션: $1"
                 ;;
             *)
-                # 위치 인자
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
-                elif [ -z "$_uri_ver" ]; then
-                    _uri_ver="$1"
-                elif [ -z "$_feature" ]; then
-                    _feature="$1"
-                elif [ -z "$_destination" ]; then
-                    _destination="$1"
-                else
-                    die "인자가 너무 많습니다: $1"
-                fi
+                # 위치 인자를 나중에 처리하기 위해 저장
+                _positional_args="$_positional_args $1"
                 ;;
         esac
         shift
     done
+
+    # 위치 인자 처리 (--continue 또는 --abort 모드에 따라 다르게 처리)
+    set -- $_positional_args
+    if [ "$_continue" = true ] || [ "$_abort" = true ]; then
+        # --continue/--abort 모드: 첫 번째 인자가 destination
+        if [ $# -ge 1 ]; then
+            _destination="$1"
+        fi
+    else
+        # 일반 모드: mastodon_ver uri_ver feature destination 순서
+        if [ $# -ge 1 ]; then
+            _mastodon_ver="$1"
+        fi
+        if [ $# -ge 2 ]; then
+            _uri_ver="$2"
+        fi
+        if [ $# -ge 3 ]; then
+            _feature="$3"
+        fi
+        if [ $# -ge 4 ]; then
+            _destination="$4"
+        fi
+        if [ $# -ge 5 ]; then
+            die "인자가 너무 많습니다: $5"
+        fi
+    fi
 
     # destination 필수 확인
     if [ -z "$_destination" ]; then
@@ -111,7 +133,7 @@ cmd_expand() {
     # 워킹 트리 깨끗한지 확인
     git_ensure_clean "$_destination"
 
-    _expand_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_destination"
+    _expand_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_destination" "$_force"
 }
 
 # feature 확장 메인 로직 (내부 함수)
@@ -120,6 +142,7 @@ _expand_feature() {
     _uri_ver="$2"
     _feature="$3"
     _dest="$4"
+    _force="$5"
 
     # manifest 확인
     _manifest=$(resolve_manifest_path "$_mastodon_ver" "$_uri_ver")
@@ -144,6 +167,18 @@ _expand_feature() {
     for _f in $_sorted_features; do
         echo "  - $_f"
     done
+
+    # apply로 생성된 버전 브랜치 존재 여부 확인
+    # (uri/{ver}/{uri_ver} 형태 - feature 브랜치와 경로 충돌 발생)
+    _version_branch=$(uri_version_branch_name "$_mastodon_ver" "$_uri_ver")
+    if git_branch_exists "$_dest" "$_version_branch"; then
+        if [ "$_force" = "true" ]; then
+            warn "버전 브랜치 '$_version_branch'를 삭제합니다 (--force)..."
+            git_delete_branch "$_dest" "$_version_branch"
+        else
+            die "브랜치 '$_version_branch'가 이미 존재합니다 (apply로 생성됨). --force 옵션으로 삭제하거나 수동으로 삭제하세요: git branch -D $_version_branch"
+        fi
+    fi
 
     # 브랜치 존재 여부 확인 (이미 expand된 상태인지)
     for _f in $_sorted_features; do
