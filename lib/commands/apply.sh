@@ -40,7 +40,8 @@ cmd_apply() {
     _continue=false
     _abort=false
 
-    # 옵션 파싱
+    # 옵션 파싱 (먼저 옵션만 처리)
+    _positional_args=""
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)
@@ -57,20 +58,35 @@ cmd_apply() {
                 die "알 수 없는 옵션: $1"
                 ;;
             *)
-                # 위치 인자
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
-                elif [ -z "$_uri_ver" ]; then
-                    _uri_ver="$1"
-                elif [ -z "$_destination" ]; then
-                    _destination="$1"
-                else
-                    die "인자가 너무 많습니다: $1"
-                fi
+                # 위치 인자를 나중에 처리하기 위해 저장
+                _positional_args="$_positional_args $1"
                 ;;
         esac
         shift
     done
+
+    # 위치 인자 처리 (--continue 또는 --abort 모드에 따라 다르게 처리)
+    set -- $_positional_args
+    if [ "$_continue" = true ] || [ "$_abort" = true ]; then
+        # --continue/--abort 모드: 첫 번째 인자가 destination
+        if [ $# -ge 1 ]; then
+            _destination="$1"
+        fi
+    else
+        # 일반 모드: mastodon_ver uri_ver destination 순서
+        if [ $# -ge 1 ]; then
+            _mastodon_ver="$1"
+        fi
+        if [ $# -ge 2 ]; then
+            _uri_ver="$2"
+        fi
+        if [ $# -ge 3 ]; then
+            _destination="$3"
+        fi
+        if [ $# -ge 4 ]; then
+            die "인자가 너무 많습니다: $4"
+        fi
+    fi
 
     # destination 필수 확인
     if [ -z "$_destination" ]; then

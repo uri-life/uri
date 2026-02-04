@@ -150,7 +150,14 @@ uri remove v4.3.2
 feature를 Mastodon 소스에 적용합니다.
 
 ```sh
+# feature 적용
 uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon
+
+# 충돌 해결 후 계속 진행
+uri expand /path/to/mastodon --continue
+
+# 진행 중인 작업 중단 및 원복
+uri expand /path/to/mastodon --abort
 ```
 
 ### 접기 (`collapse`)
@@ -171,7 +178,14 @@ uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
 uri 버전의 모든 feature를 일괄 적용합니다.
 
 ```sh
+# 모든 feature 적용
 uri apply v4.3.2 uri1.23 /path/to/mastodon
+
+# 충돌 해결 후 계속 진행
+uri apply /path/to/mastodon --continue
+
+# 진행 중인 작업 중단 및 원복
+uri apply /path/to/mastodon --abort
 ```
 
 ---
@@ -193,7 +207,7 @@ uri apply v4.3.2 uri1.23 /path/to/mastodon
 3. 각 feature 적용 완료 시 **상태 추적용 Git 브랜치 생성**
    - feature 간 경계를 명확히 하고, 커밋 수를 추적할 수 있습니다
 
-**충돌 처리**: `git merge`와 유사하게 충돌 시 중단하며, `--continue` / `--abort` 옵션을 지원할 예정입니다.
+**충돌 처리**: `git merge`와 유사하게 충돌 시 중단하며, `--continue` / `--abort` 옵션을 지원합니다.
 
 ### `collapse` — 패치 추출
 
