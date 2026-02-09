@@ -106,6 +106,8 @@ features:
 
 ## CLI 명령어
 
+모든 명령어는 `uri <command> --help`로 상세 도움말을 확인할 수 있습니다.
+
 ### 초기화 (`init`)
 
 ```sh
@@ -114,6 +116,9 @@ uri init
 
 # 특정 Mastodon 버전용 패치 세트 초기화
 uri init v4.3.2
+
+# upstream URL 지정
+uri init --upstream https://github.com/mastodon/mastodon.git
 ```
 
 ### 추가 (`add`)
@@ -121,6 +126,9 @@ uri init v4.3.2
 ```sh
 # uri 버전 추가
 uri add v4.3.2 uri1.23
+
+# uri 버전 추가 (상속 지정)
+uri add v4.3.2 uri1.23 --inherits "uri1.0"
 
 # feature 추가
 uri add v4.3.2 uri1.23 custom_emoji
@@ -143,11 +151,27 @@ uri remove v4.3.2 uri1.23
 
 # Mastodon 버전 패치 세트 삭제
 uri remove v4.3.2
+
+# 확인 프롬프트 없이 강제 삭제 (-f 또는 --force)
+uri remove v4.3.2 uri1.23 custom_emoji -f
+```
+
+### 목록 (`list`)
+
+```sh
+# Mastodon 버전 목록
+uri list
+
+# 특정 Mastodon 버전의 uri 패치 목록
+uri list v4.3.2
+
+# 특정 uri 버전의 feature 목록
+uri list v4.3.2 uri1.23
 ```
 
 ### 펼치기 (`expand`)
 
-feature를 Mastodon 소스에 적용합니다.
+feature와 그 의존성을 Mastodon 소스에 적용합니다.
 
 ```sh
 # feature 적용
@@ -158,20 +182,21 @@ uri expand /path/to/mastodon --continue
 
 # 진행 중인 작업 중단 및 원복
 uri expand /path/to/mastodon --abort
+
+# 이전 apply로 생성된 버전 브랜치를 자동 삭제하고 진행
+uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon --force
 ```
 
 ### 접기 (`collapse`)
 
-Mastodon 소스에서 feature를 패치 파일로 추출합니다.
+Mastodon 소스에서 feature와 그 의존성을 패치 파일로 추출합니다.
+추출 후 태그 위치로 체크아웃하고 관련 브랜치를 삭제합니다.
 
 ```sh
 uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
 ```
 
-> **펼치기/접기 동작 원리**
->
-> - 각 패치 파일을 커밋으로 변환하여 Git 리포지토리에서 적용/제거합니다.
-> - 의존성이 있는 feature들은 함께 처리됩니다(적용은 의존성 순서, 추출은 역순).
+> **참고**: `collapse`는 `expand`와 달리 `--continue`/`--abort`를 지원하지 않습니다.
 
 ### 배포 적용 (`apply`)
 
@@ -186,6 +211,14 @@ uri apply /path/to/mastodon --continue
 
 # 진행 중인 작업 중단 및 원복
 uri apply /path/to/mastodon --abort
+```
+
+### 마이그레이션 (`migrate`)
+
+> **일회성 도구**: 브랜치 기반 패치 세트에서 uri 구조로 마이그레이션할 때만 사용합니다.
+
+```sh
+uri migrate /path/to/old_mastodon v4.3.2/uri1 23 /path/to/new_mastodon
 ```
 
 ---
@@ -203,9 +236,9 @@ uri apply /path/to/mastodon --abort
 ### `expand` — 패치 적용
 
 1. Mastodon 버전 태그를 기준으로 체크아웃
-2. 의존성 순서에 따라 feature 적용
-3. 각 feature 적용 완료 시 **상태 추적용 Git 브랜치 생성**
-   - feature 간 경계를 명확히 하고, 커밋 수를 추적할 수 있습니다
+2. 대상 feature와 그 의존성을 위상 정렬하여 순서대로 적용
+3. 각 feature 적용 완료 시 **상태 추적용 Git 브랜치 생성** (`uri/{ver}/{uri_ver}/{feature}`)
+   - feature 간 경계를 명확히 하고, 커밋 범위를 추적할 수 있습니다
 
 **충돌 처리**: `git merge`와 유사하게 충돌 시 중단하며, `--continue` / `--abort` 옵션을 지원합니다.
 
@@ -214,10 +247,15 @@ uri apply /path/to/mastodon --abort
 1. 상태 추적용 브랜치를 활용하여 feature별 커밋 범위 식별
    - `직전_feature_브랜치..해당_feature_브랜치` 범위로 한정
 2. 의존성 역순으로 `.patch` 파일 추출
+3. 추출 완료 후 태그로 체크아웃하고 관련 브랜치를 삭제
+
+> **참고**: `collapse`는 충돌 없이 단방향으로 실행되므로 `--continue`/`--abort`를 지원하지 않습니다.
 
 ### `apply` — 배포용 전체 적용
 
-- 지정한 uri 버전의 **모든 feature**를 적용합니다.
+- 지정한 uri 버전의 **모든 feature**를 위상 정렬 순서로 적용합니다.
 - 상속된 feature도 포함되며, 하나의 집합으로 취급됩니다.
+- 적용 후 `uri/{ver}/{uri_ver}` 브랜치를 생성합니다.
 - 주로 **배포 목적**으로 사용됩니다.
+- 충돌 시 `--continue` / `--abort`를 지원합니다.
 

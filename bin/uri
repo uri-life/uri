@@ -65,9 +65,9 @@ uri - Uri Reconstruction Instrument v${VERSION}
   uri list                                          # Mastodon 버전 목록
   uri list v4.3.2                                   # uri 패치 목록
   uri list v4.3.2 uri1.23                           # feature 목록
-  uri expand v4.3.2 uri1.23 custom_emoji -d /path   # feature 적용
-  uri collapse v4.3.2 uri1.23 custom_emoji -s /path # feature 추출
-  uri apply v4.3.2 uri1.23 -d /path                 # 전체 적용
+  uri expand v4.3.2 uri1.23 custom_emoji /path      # feature 적용
+  uri collapse v4.3.2 uri1.23 custom_emoji /path    # feature 추출
+  uri apply v4.3.2 uri1.23 /path                    # 전체 적용
 EOF
 }
 

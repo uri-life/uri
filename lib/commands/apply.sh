@@ -225,9 +225,9 @@ _apply_features_internal() {
             echo "충돌을 해결한 후:"
             echo "  1. 충돌 파일을 수정하세요"
             echo "  2. git add <파일> 로 스테이징하세요"
-            echo "  3. 'uri apply --continue -d $_dest' 로 계속하세요"
+            echo "  3. 'uri apply $_dest --continue' 로 계속하세요"
             echo ""
-            echo "작업을 중단하려면: 'uri apply --abort -d $_dest'"
+            echo "작업을 중단하려면: 'uri apply $_dest --abort'"
             exit 1
         fi
 

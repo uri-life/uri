@@ -137,8 +137,8 @@ _list_features() {
         die "manifest.yaml을 찾을 수 없습니다: $_manifest"
     fi
 
-    # yq로 features 키 목록 추출
-    _features=$(yq -r '.features // {} | keys | .[]' "$_manifest" 2>/dev/null)
+    # features 키 목록 추출
+    _features=$(yaml_list_features "$_manifest")
 
     if [ -z "$_features" ]; then
         info "feature가 없습니다."
