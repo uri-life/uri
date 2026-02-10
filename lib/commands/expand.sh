@@ -215,6 +215,7 @@ _apply_features() {
 
     _index=0
     _prev_branch=""
+    _last_branch=""
 
     for _feature in $_features_str; do
         # 시작 인덱스 이전은 스킵

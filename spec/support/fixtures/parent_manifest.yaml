@@ -1,0 +1,7 @@
+inherits: "uri1.0"
+
+features:
+  base:
+    name: "기본 패치"
+    description: "기본 설정 변경"
+    dependencies: []

@@ -4,8 +4,8 @@
 # 의존성: tsort (POSIX 표준 유틸리티)
 
 # tsort를 사용한 위상 정렬
-# 입력: 간선 쌍이 담긴 파일 (각 줄: "의존하는_노드 의존되는_노드")
-# 출력: 정렬된 노드 목록 (역순, 즉 의존성이 먼저 나옴)
+# 입력: 간선 쌍이 담긴 파일 (각 줄: "선행_노드 후행_노드")
+# 출력: 선행 노드가 먼저 나오는 정렬된 노드 목록
 # 사용법: topsort_file "/path/to/edges.txt"
 topsort_file() {
     _edges_file="$1"
@@ -51,9 +51,8 @@ build_dependency_graph() {
         for _dep in $_deps; do
             # 빈 문자열이나 null 무시
             if [ -n "$_dep" ] && [ "$_dep" != "null" ]; then
-                # "feature depends_on dependency" 형식
-                # tsort는 역순으로 출력하므로 간선 방향 주의
-                echo "$_feature $_dep" >> "$_edges_file"
+                # dep가 feature보다 먼저 적용되어야 하므로 dep를 선행으로 기록
+                echo "$_dep $_feature" >> "$_edges_file"
             fi
         done
     done
@@ -76,8 +75,8 @@ get_sorted_features() {
         return 0
     fi
 
-    # 위상 정렬 실행 후 역순으로 변환 (tsort는 의존하는 것이 먼저 나오므로)
-    topsort_file "$_edges_file" | reverse_lines
+    # 위상 정렬 실행 (간선이 "dep feature" 순이므로 출력이 곧 적용 순서)
+    topsort_file "$_edges_file"
 }
 
 # 특정 feature와 그 의존성들만 정렬하여 반환
@@ -109,9 +108,9 @@ get_feature_with_deps() {
         fi
     done < "$_edges_file" > "$_filtered_edges"
 
-    # 정렬 실행 후 역순으로 변환 (의존되는 것이 먼저 오도록)
+    # 정렬 실행 (간선이 "dep feature" 순이므로 출력이 곧 적용 순서)
     if [ -s "$_filtered_edges" ]; then
-        topsort_file "$_filtered_edges" | reverse_lines
+        topsort_file "$_filtered_edges"
     fi
 }
 

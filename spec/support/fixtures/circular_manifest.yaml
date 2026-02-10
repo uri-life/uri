@@ -1,0 +1,11 @@
+features:
+  a:
+    name: "A"
+    description: ""
+    dependencies:
+      - b
+  b:
+    name: "B"
+    description: ""
+    dependencies:
+      - a

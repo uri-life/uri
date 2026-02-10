@@ -236,6 +236,9 @@ _migrate_single_feature() {
     _add_migrate_feature "$_mastodon_ver" "$_uri_ver" "$_feature"
 
     # 2. 새 리포지토리에서 태그로 체크아웃하고 브랜치 생성
+    # feature 카운터 초기화 (set -u 호환)
+    : "${_feature_count:=0}"
+
     info "  태그 ${_mastodon_ver}에서 브랜치 생성..."
     git_checkout_tag "$_new_repo" "$_mastodon_ver"
 
@@ -254,7 +257,8 @@ _migrate_single_feature() {
         info "  ${_commit_count}개 커밋을 cherry-pick합니다..."
 
         for _commit in $_commits; do
-            git -C "$_new_repo" cherry-pick "$_commit" >/dev/null 2>&1 || \
+            GIT_COMMITTER_NAME="$URI_GIT_NAME" GIT_COMMITTER_EMAIL="$URI_GIT_EMAIL" \
+            git -C "$_new_repo" cherry-pick --no-gpg-sign "$_commit" >/dev/null 2>&1 || \
                 die "cherry-pick 실패 (commit: $_commit). 충돌이 발생했습니다."
         done
     fi

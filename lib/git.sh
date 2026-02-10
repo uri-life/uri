@@ -2,6 +2,10 @@
 # git.sh - Git 유틸리티 함수
 # POSIX 호환 셸 스크립트
 
+# 커밋 생성 시 사용할 신원 정보
+URI_GIT_NAME="URI"
+URI_GIT_EMAIL="uri@uri.life"
+
 # Git 리포지토리인지 확인
 # 사용법: git_is_repo "/path/to/dir"
 git_is_repo() {
@@ -97,7 +101,8 @@ git_current_commit() {
 git_am() {
     _dir="$1"
     _patch="$2"
-    if git -C "$_dir" am --3way < "$_patch" 2>/dev/null; then
+    if GIT_COMMITTER_NAME="$URI_GIT_NAME" GIT_COMMITTER_EMAIL="$URI_GIT_EMAIL" \
+       git -C "$_dir" am --3way --no-gpg-sign < "$_patch" 2>/dev/null; then
         return 0
     else
         return 1
@@ -108,7 +113,8 @@ git_am() {
 # 사용법: git_am_continue "/path/to/repo"
 git_am_continue() {
     _dir="$1"
-    git -C "$_dir" am --continue
+    GIT_COMMITTER_NAME="$URI_GIT_NAME" GIT_COMMITTER_EMAIL="$URI_GIT_EMAIL" \
+    git -C "$_dir" am --continue --no-gpg-sign
 }
 
 # 패치 적용 중단 및 원복
