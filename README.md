@@ -12,6 +12,7 @@
 - [용어](#용어)
 - [패치 세트 구조](#패치-세트-구조)
 - [CLI 명령어](#cli-명령어)
+- [셸 자동 완성](#셸-자동-완성)
 - [동작 계약](#동작-계약)
 
 ---
@@ -219,6 +220,53 @@ uri apply /path/to/mastodon --abort
 
 ```sh
 uri migrate /path/to/old_mastodon v4.3.2/uri1 23 /path/to/new_mastodon
+```
+
+---
+
+## 셸 자동 완성
+
+`uri` CLI는 Bash, Zsh, Fish 셸의 자동 완성을 지원합니다.
+
+`versions/` 디렉터리와 `manifest.yaml`을 실시간 조회하여 mastodon 버전, uri 버전, feature 이름을 동적으로 완성합니다. feature 동적 완성에는 `yq`가 필요하며, 미설치 시 커맨드·플래그 완성만 동작합니다.
+
+### Bash
+
+`~/.bashrc` 또는 `~/.bash_profile`에 추가:
+
+```bash
+source /path/to/uri/share/bash-completion/completions/uri
+```
+
+또는 시스템 completions 디렉터리에 복사:
+
+```bash
+cp share/bash-completion/completions/uri /usr/local/share/bash-completion/completions/
+```
+
+### Zsh
+
+`~/.zshrc`에 추가 (`compinit` 호출 전):
+
+```zsh
+fpath=(/path/to/uri/share/zsh/site-functions $fpath)
+autoload -Uz compinit && compinit
+```
+
+또는 기존 `$fpath` 디렉터리에 심링크:
+
+```zsh
+ln -s /path/to/uri/share/zsh/site-functions/_uri /usr/local/share/zsh/site-functions/_uri
+```
+
+### Fish
+
+completions 디렉터리에 복사 또는 심링크:
+
+```fish
+cp share/fish/vendor_completions.d/uri.fish ~/.config/fish/completions/
+# 또는
+ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/completions/uri.fish
 ```
 
 ---

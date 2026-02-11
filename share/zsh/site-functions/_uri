@@ -1,0 +1,387 @@
+#compdef uri
+# uri - zsh completion
+
+# URI_ROOT 탐색 (manifest.yaml이 있는 디렉터리)
+_uri_find_root() {
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/manifest.yaml" ]]; then
+            echo "$dir"
+            return 0
+        fi
+        dir=${dir:h}
+    done
+    return 1
+}
+
+# mastodon 버전 목록
+_uri_mastodon_versions() {
+    local root
+    root=$(_uri_find_root) || return
+    local versions_dir="$root/versions"
+    if [[ -d "$versions_dir" ]]; then
+        local -a vers
+        vers=("$versions_dir"/*(N/:t))
+        compadd -a vers
+    fi
+}
+
+# uri 버전 목록
+_uri_uri_versions() {
+    local root mastodon_ver="$1"
+    root=$(_uri_find_root) || return
+    local patches_dir="$root/versions/$mastodon_ver/patches"
+    if [[ -d "$patches_dir" ]]; then
+        local -a vers
+        vers=("$patches_dir"/*(N/:t))
+        compadd -a vers
+    fi
+}
+
+# feature 키 목록 (상속 체인을 따라가며 수집)
+_uri_features() {
+    local root mastodon_ver="$1" uri_ver="$2"
+    root=$(_uri_find_root) || return
+    (( $+commands[yq] )) || return
+    local -a feats
+    feats=(${(f)"$(_uri_resolve_features "$root" "$mastodon_ver" "$uri_ver" | sort -u)"})
+    compadd -a feats
+}
+
+# 상속 체인을 재귀적으로 따라가며 feature 키 수집 (내부 함수)
+_uri_resolve_features() {
+    local root="$1" mver="$2" uver="$3"
+    local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
+    [[ -f "$manifest" ]] || return
+    yq eval '.features | keys | .[]' "$manifest" 2>/dev/null
+    local inherits
+    inherits=$(yq eval '.inherits // ""' "$manifest" 2>/dev/null)
+    if [[ -n "$inherits" ]]; then
+        if [[ "$inherits" == *+* ]]; then
+            _uri_resolve_features "$root" "${inherits%%+*}" "${inherits#*+}"
+        else
+            _uri_resolve_features "$root" "$mver" "$inherits"
+        fi
+    fi
+}
+
+# 이전 위치 인자 값 추출 (인자 파싱 결과에서)
+_uri_get_prev_positional() {
+    local target=$1
+    shift
+    local count=0 skip_next=false
+    local value_opts=("$@")
+    local i w
+    for ((i = 2; i < CURRENT; i++)); do
+        w="${words[i]}"
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        case "$w" in
+            -*)
+                for vo in "${value_opts[@]}"; do
+                    if [[ "$w" == "$vo" ]]; then
+                        skip_next=true
+                        break
+                    fi
+                done
+                ;;
+            *)
+                count=$((count + 1))
+                if [[ "$count" -eq "$target" ]]; then
+                    echo "$w"
+                    return
+                fi
+                ;;
+        esac
+    done
+}
+
+_uri_count_pos() {
+    local count=0 skip_next=false
+    local value_opts=("$@")
+    local i w
+    for ((i = 2; i < CURRENT; i++)); do
+        w="${words[i]}"
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        case "$w" in
+            -*)
+                for vo in "${value_opts[@]}"; do
+                    if [[ "$w" == "$vo" ]]; then
+                        skip_next=true
+                        break
+                    fi
+                done
+                ;;
+            *)
+                count=$((count + 1))
+                ;;
+        esac
+    done
+    echo "$count"
+}
+
+_uri_has_word() {
+    local target="$1" i
+    for ((i = 2; i < CURRENT; i++)); do
+        [[ "${words[i]}" == "$target" ]] && return 0
+    done
+    return 1
+}
+
+# --- init ---
+_uri_init() {
+    local npos=$(_uri_count_pos --upstream)
+    if [[ "$words[CURRENT-1]" == "--upstream" ]]; then
+        return  # URL 자유 입력
+    fi
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            --upstream:upstream\ Git\ URL
+        )'
+        return
+    fi
+    if [[ "$npos" -eq 0 ]]; then
+        _uri_mastodon_versions
+    fi
+}
+
+# --- add ---
+_uri_add() {
+    local npos value_flags=(--name --description --dependencies --inherits)
+    npos=$(_uri_count_pos "${value_flags[@]}")
+
+    case "$words[CURRENT-1]" in
+        --name|--description|--dependencies|--inherits)
+            return
+            ;;
+    esac
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            --name:feature\ 이름
+            --description:feature\ 설명
+            --dependencies:의존\ feature
+            --inherits:상속할\ uri\ 버전
+        )'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1 "${value_flags[@]}")
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1 "${value_flags[@]}")
+            local uver=$(_uri_get_prev_positional 2 "${value_flags[@]}")
+            _uri_features "$mver" "$uver"
+            ;;
+    esac
+}
+
+# --- remove ---
+_uri_remove() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            -f:강제\ 삭제
+            --force:강제\ 삭제
+        )'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1)
+            local uver=$(_uri_get_prev_positional 2)
+            _uri_features "$mver" "$uver"
+            ;;
+    esac
+}
+
+# --- list ---
+_uri_list() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(-h:도움말 --help:도움말)'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+    esac
+}
+
+# --- expand ---
+_uri_expand() {
+    # --continue/--abort 뒤에는 destination(디렉터리)만
+    if _uri_has_word "--continue" || _uri_has_word "--abort"; then
+        if [[ "$PREFIX" == -* ]]; then
+            _describe 'option' '(
+                -h:도움말
+                --help:도움말
+                --continue:충돌\ 해결\ 후\ 계속
+                --abort:작업\ 중단
+            )'
+        else
+            _directories
+        fi
+        return
+    fi
+
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            --continue:충돌\ 해결\ 후\ 계속
+            --abort:작업\ 중단
+            --force:기존\ 브랜치\ 삭제
+        )'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1)
+            local uver=$(_uri_get_prev_positional 2)
+            _uri_features "$mver" "$uver"
+            ;;
+        3) _directories ;;
+    esac
+}
+
+# --- collapse ---
+_uri_collapse() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(-h:도움말 --help:도움말)'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1)
+            local uver=$(_uri_get_prev_positional 2)
+            _uri_features "$mver" "$uver"
+            ;;
+        3) _directories ;;
+    esac
+}
+
+# --- apply ---
+_uri_apply() {
+    # --continue/--abort 뒤에는 destination(디렉터리)만
+    if _uri_has_word "--continue" || _uri_has_word "--abort"; then
+        if [[ "$PREFIX" == -* ]]; then
+            _describe 'option' '(
+                -h:도움말
+                --help:도움말
+                --continue:충돌\ 해결\ 후\ 계속
+                --abort:작업\ 중단
+            )'
+        else
+            _directories
+        fi
+        return
+    fi
+
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            --continue:충돌\ 해결\ 후\ 계속
+            --abort:작업\ 중단
+        )'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2) _directories ;;
+    esac
+}
+
+# --- migrate ---
+_uri_migrate() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(-h:도움말 --help:도움말)'
+        return
+    fi
+    case "$npos" in
+        0|3) _directories ;;  # old_repo, new_repo
+    esac
+}
+
+# --- 메인 디스패처 ---
+_uri() {
+    local curcontext="$curcontext" state line
+    local -A opt_args
+
+    _arguments -C \
+        '-h[도움말]' \
+        '--help[도움말]' \
+        '-v[버전 출력]' \
+        '--version[버전 출력]' \
+        '1:command:->subcmd' \
+        '*::arg:->args' && return
+
+    case "$state" in
+        subcmd)
+            _describe 'command' '(
+                init:패치\ 세트\ 초기화
+                add:uri\ 버전\ 또는\ feature\ 추가
+                remove:버전\ 또는\ feature\ 제거
+                list:버전·feature\ 목록\ 출력
+                expand:feature를\ Mastodon\ 소스에\ 적용
+                collapse:패치\ 파일로\ 추출
+                apply:모든\ feature\ 일괄\ 적용
+                migrate:브랜치\ 기반에서\ 마이그레이션
+            )'
+            ;;
+        args)
+            case "${line[1]}" in
+                init)     _uri_init ;;
+                add)      _uri_add ;;
+                remove)   _uri_remove ;;
+                list)     _uri_list ;;
+                expand)   _uri_expand ;;
+                collapse) _uri_collapse ;;
+                apply)    _uri_apply ;;
+                migrate)  _uri_migrate ;;
+            esac
+            ;;
+    esac
+}
+
+_uri "$@"

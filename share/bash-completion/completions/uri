@@ -1,0 +1,409 @@
+# uri - bash completion
+# shellcheck shell=bash
+
+# URI_ROOT 탐색 (manifest.yaml이 있는 디렉터리)
+_uri_find_root() {
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/manifest.yaml" ]]; then
+            echo "$dir"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
+}
+
+# versions/ 하위 mastodon 버전 목록
+_uri_mastodon_versions() {
+    local root
+    root=$(_uri_find_root) || return
+    local versions_dir="$root/versions"
+    if [[ -d "$versions_dir" ]]; then
+        local d
+        for d in "$versions_dir"/*/; do
+            [[ -d "$d" ]] && basename "$d"
+        done
+    fi
+}
+
+# versions/<mastodon_ver>/patches/ 하위 uri 버전 목록
+_uri_uri_versions() {
+    local root mastodon_ver="$1"
+    root=$(_uri_find_root) || return
+    local patches_dir="$root/versions/$mastodon_ver/patches"
+    if [[ -d "$patches_dir" ]]; then
+        local d
+        for d in "$patches_dir"/*/; do
+            [[ -d "$d" ]] && basename "$d"
+        done
+    fi
+}
+
+# manifest에서 feature 키 목록 (상속 체인을 따라가며 수집, yq 필요)
+_uri_features() {
+    local root mastodon_ver="$1" uri_ver="$2"
+    root=$(_uri_find_root) || return
+    command -v yq &>/dev/null || return
+    _uri_resolve_features "$root" "$mastodon_ver" "$uri_ver" | sort -u
+}
+
+# 상속 체인을 재귀적으로 따라가며 feature 키 수집 (내부 함수)
+_uri_resolve_features() {
+    local root="$1" mver="$2" uver="$3"
+    local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
+    [[ -f "$manifest" ]] || return
+    yq eval '.features | keys | .[]' "$manifest" 2>/dev/null
+    local inherits
+    inherits=$(yq eval '.inherits // ""' "$manifest" 2>/dev/null)
+    if [[ -n "$inherits" ]]; then
+        if [[ "$inherits" == *+* ]]; then
+            _uri_resolve_features "$root" "${inherits%%+*}" "${inherits#*+}"
+        else
+            _uri_resolve_features "$root" "$mver" "$inherits"
+        fi
+    fi
+}
+
+# 위치 인자만 카운트 (플래그와 플래그 값 제외)
+_uri_count_positional() {
+    local count=0 i skip_next=false
+    # $1 = 플래그 값을 소비하는 옵션 패턴 (예: "--upstream|--name|...")
+    local value_flags="$1"
+    shift
+    for i in "$@"; do
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        case "$i" in
+            -*)
+                # 값을 소비하는 플래그면 다음 인자 건너뜀
+                if [[ -n "$value_flags" ]] && echo "$i" | grep -qE "^($value_flags)$"; then
+                    skip_next=true
+                fi
+                ;;
+            *)
+                count=$((count + 1))
+                ;;
+        esac
+    done
+    echo "$count"
+}
+
+# n번째 위치 인자 값 조회
+_uri_get_positional() {
+    local target="$1" value_flags="$2"
+    shift 2
+    local count=0 skip_next=false i
+    for i in "$@"; do
+        if $skip_next; then
+            skip_next=false
+            continue
+        fi
+        case "$i" in
+            -*)
+                if [[ -n "$value_flags" ]] && echo "$i" | grep -qE "^($value_flags)$"; then
+                    skip_next=true
+                fi
+                ;;
+            *)
+                count=$((count + 1))
+                if [[ "$count" -eq "$target" ]]; then
+                    echo "$i"
+                    return
+                fi
+                ;;
+        esac
+    done
+}
+
+# 특정 플래그가 이미 입력되었는지 확인
+_uri_has_flag() {
+    local flag="$1"
+    shift
+    local w
+    for w in "$@"; do
+        [[ "$w" == "$flag" ]] && return 0
+    done
+    return 1
+}
+
+_uri() {
+    local cur prev words cword
+    if type _init_completion &>/dev/null; then
+        _init_completion || return
+    else
+        COMPREPLY=()
+        cur="${COMP_WORDS[COMP_CWORD]}"
+        prev="${COMP_WORDS[COMP_CWORD-1]}"
+        words=("${COMP_WORDS[@]}")
+        cword=$COMP_CWORD
+    fi
+
+    # 서브커맨드 결정 (첫 번째 위치 인자)
+    local subcmd="" i
+    for ((i = 1; i < cword; i++)); do
+        case "${words[i]}" in
+            -*) ;;
+            *)
+                subcmd="${words[i]}"
+                break
+                ;;
+        esac
+    done
+
+    # 서브커맨드 미결정 시
+    if [[ -z "$subcmd" ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help -v --version" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "init add remove list expand collapse apply migrate" -- "$cur"))
+        fi
+        return
+    fi
+
+    # 서브커맨드별 인자 (words 중 서브커맨드 이후 ~ cur 직전)
+    local sub_args=()
+    local found=false
+    for ((i = 1; i < cword; i++)); do
+        if $found; then
+            sub_args+=("${words[i]}")
+        elif [[ "${words[i]}" == "$subcmd" ]]; then
+            found=true
+        fi
+    done
+
+    case "$subcmd" in
+        init)
+            _uri_complete_init "${sub_args[@]}"
+            ;;
+        add)
+            _uri_complete_add "${sub_args[@]}"
+            ;;
+        remove)
+            _uri_complete_remove "${sub_args[@]}"
+            ;;
+        list)
+            _uri_complete_list "${sub_args[@]}"
+            ;;
+        expand)
+            _uri_complete_expand "${sub_args[@]}"
+            ;;
+        collapse)
+            _uri_complete_collapse "${sub_args[@]}"
+            ;;
+        apply)
+            _uri_complete_apply "${sub_args[@]}"
+            ;;
+        migrate)
+            _uri_complete_migrate "${sub_args[@]}"
+            ;;
+    esac
+}
+
+# --- 커맨드별 완성 함수 ---
+
+_uri_complete_init() {
+    local npos
+    npos=$(_uri_count_positional "--upstream" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --upstream" -- "$cur"))
+        return
+    fi
+
+    if [[ "$prev" == "--upstream" ]]; then
+        return  # URL 자유 입력
+    fi
+
+    # 위치 인자 1: mastodon_version
+    if [[ "$npos" -eq 0 ]]; then
+        COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur"))
+    fi
+}
+
+_uri_complete_add() {
+    local npos
+    npos=$(_uri_count_positional "--name|--description|--dependencies|--inherits" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --name --description --dependencies --inherits" -- "$cur"))
+        return
+    fi
+
+    case "$prev" in
+        --name|--description|--dependencies|--inherits)
+            return  # 자유 입력
+            ;;
+    esac
+
+    local vflags="--name|--description|--dependencies|--inherits"
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "$vflags" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "$vflags" "$@")
+            uver=$(_uri_get_positional 2 "$vflags" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            ;;
+    esac
+}
+
+_uri_complete_remove() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help -f --force" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "" "$@")
+            uver=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            ;;
+    esac
+}
+
+_uri_complete_list() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+    esac
+}
+
+_uri_complete_expand() {
+    # --continue/--abort가 있으면 destination(디렉터리)만 완성
+    if _uri_has_flag "--continue" "$@" || _uri_has_flag "--abort" "$@"; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help --continue --abort" -- "$cur"))
+        else
+            _filedir -d
+        fi
+        return
+    fi
+
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --continue --abort --force" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "" "$@")
+            uver=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            ;;
+        3) _filedir -d ;;
+    esac
+}
+
+_uri_complete_collapse() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "" "$@")
+            uver=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            ;;
+        3) _filedir -d ;;
+    esac
+}
+
+_uri_complete_apply() {
+    # --continue/--abort가 있으면 destination(디렉터리)만 완성
+    if _uri_has_flag "--continue" "$@" || _uri_has_flag "--abort" "$@"; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help --continue --abort" -- "$cur"))
+        else
+            _filedir -d
+        fi
+        return
+    fi
+
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --continue --abort" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2) _filedir -d ;;
+    esac
+}
+
+_uri_complete_migrate() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return
+    fi
+
+    # 4개 모두 자유 입력 / 디렉터리
+    case "$npos" in
+        0|3) _filedir -d ;;  # old_repo, new_repo
+    esac
+}
+
+complete -F _uri uri
