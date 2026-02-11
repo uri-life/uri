@@ -156,6 +156,13 @@ git_commit_count() {
     git -C "$_dir" rev-list --count "$_range" 2>/dev/null || echo "0"
 }
 
+# HEAD를 detach (현재 브랜치에서 분리)
+# 사용법: git_detach_head "/path/to/repo"
+git_detach_head() {
+    _dir="$1"
+    git -C "$_dir" checkout --detach HEAD >/dev/null 2>&1
+}
+
 # 브랜치 삭제
 # 사용법: git_delete_branch "/path/to/repo" "branch-name"
 git_delete_branch() {
@@ -169,6 +176,13 @@ git_delete_branch() {
 git_fetch() {
     _dir="$1"
     git -C "$_dir" fetch --all --tags >/dev/null 2>&1
+}
+
+# 태그만 fetch (실패해도 무시)
+# 사용법: git_fetch_tags_quiet "/path/to/repo"
+git_fetch_tags_quiet() {
+    _dir="$1"
+    git -C "$_dir" fetch --tags >/dev/null 2>&1 || true
 }
 
 # uri feature 브랜치 이름 생성 (expand/collapse용)

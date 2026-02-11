@@ -156,6 +156,9 @@ _apply_all_features() {
         echo "  - $_f"
     done
 
+    # 태그 fetch (실패 무시)
+    git_fetch_tags_quiet "$_dest"
+
     # Mastodon 태그로 체크아웃 (detached HEAD)
     git_checkout_tag "$_dest" "$_mastodon_ver"
 

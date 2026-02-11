@@ -174,6 +174,10 @@ _expand_feature() {
     if git_branch_exists "$_dest" "$_version_branch"; then
         if [ "$_force" = "true" ]; then
             warn "버전 브랜치 '$_version_branch'를 삭제합니다 (--force)..."
+            _current=$(git_current_branch "$_dest")
+            if [ "$_current" = "$_version_branch" ]; then
+                git_detach_head "$_dest"
+            fi
             git_delete_branch "$_dest" "$_version_branch"
         else
             die "브랜치 '$_version_branch'가 이미 존재합니다 (apply로 생성됨). --force 옵션으로 삭제하거나 수동으로 삭제하세요: git branch -D $_version_branch"
@@ -187,6 +191,9 @@ _expand_feature() {
             die "브랜치 '$_branch'가 이미 존재합니다. 이전 expand 작업이 collapse되지 않았습니다."
         fi
     done
+
+    # 태그 fetch (실패 무시)
+    git_fetch_tags_quiet "$_dest"
 
     # Mastodon 태그로 체크아웃 (detached HEAD)
     git_checkout_tag "$_dest" "$_mastodon_ver"

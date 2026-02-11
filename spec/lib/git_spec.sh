@@ -123,6 +123,15 @@ Describe 'lib/git.sh'
       End
     End
 
+    Describe 'git_detach_head()'
+      It 'HEAD를 detach한다'
+        git_create_branch "$REPO_DIR" "detach-test"
+        git_detach_head "$REPO_DIR"
+        When call git_current_branch "$REPO_DIR"
+        The output should eq "HEAD"
+      End
+    End
+
     Describe 'git_delete_branch()'
       It '브랜치를 삭제할 수 있다'
         git_create_branch_at "$REPO_DIR" "del-branch"
