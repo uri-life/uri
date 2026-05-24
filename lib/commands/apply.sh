@@ -34,6 +34,9 @@ EOF
 
 # apply 명령 메인 함수
 cmd_apply() {
+    STATE_OPERATION="apply"
+    export STATE_OPERATION
+
     _mastodon_ver=""
     _uri_ver=""
     _destination=""
@@ -178,7 +181,7 @@ _apply_all_features() {
     state_save "$_dest" "start_commit" "$(git_current_commit "$_dest")"
 
     # 순서대로 적용 (expand의 _apply_features 재사용)
-    _apply_features_internal "$_dest" "$_mastodon_ver" "$_uri_ver" "$_features_str" "0"
+    _apply_features_internal "$_dest" "$_mastodon_ver" "$_uri_ver" "$_features_str" "0" "ante"
 }
 
 # feature들을 순서대로 적용 (내부 함수)
@@ -188,6 +191,7 @@ _apply_features_internal() {
     _uri_ver="$3"
     _features_str="$4"
     _start_index="$5"
+    _start_phase="${6:-ante}"
 
     _index=0
 
@@ -198,11 +202,18 @@ _apply_features_internal() {
             continue
         fi
 
-        info "[$_index] feature '$_feature' 적용 중..."
-
         # 현재 인덱스 저장
         state_save "$_dest" "current_index" "$_index"
         state_save "$_dest" "current_feature" "$_feature"
+
+        _phase="ante"
+        if [ "$_index" -eq "$_start_index" ]; then
+            _phase="$_start_phase"
+        fi
+
+        if [ "$_phase" = "ante" ]; then
+            info "[$_index] feature '$_feature' 적용 중..."
+        fi
 
         # 패치 파일 찾기
         _patch_file=$(find_patch_file "$_mastodon_ver" "$_uri_ver" "$_feature" || true)
@@ -220,18 +231,27 @@ _apply_features_internal() {
             continue
         fi
 
-        # 패치 적용
-        if ! git_am "$_dest" "$_patch_file"; then
-            # 충돌 발생
-            warn "충돌이 발생했습니다!"
-            echo ""
-            echo "충돌을 해결한 후:"
-            echo "  1. 충돌 파일을 수정하세요"
-            echo "  2. git add <파일> 로 스테이징하세요"
-            echo "  3. 'uri apply $_dest --continue' 로 계속하세요"
-            echo ""
-            echo "작업을 중단하려면: 'uri apply $_dest --abort'"
-            exit 1
+        if [ "$_phase" = "ante" ]; then
+            if ! _apply_optional_phase_patch "$_dest" "$_mastodon_ver" "$_uri_ver" "$_feature" "ante"; then
+                _apply_print_conflict_help "$_dest"
+                exit 1
+            fi
+            _phase="main"
+        fi
+
+        if [ "$_phase" = "main" ]; then
+            if ! _apply_main_patch "$_dest" "$_mastodon_ver" "$_uri_ver" "$_feature" "$_patch_file" "$_features_str" "$_index"; then
+                _apply_print_conflict_help "$_dest"
+                exit 1
+            fi
+            _phase="post"
+        fi
+
+        if [ "$_phase" = "post" ]; then
+            if ! _apply_optional_phase_patch "$_dest" "$_mastodon_ver" "$_uri_ver" "$_feature" "post"; then
+                _apply_print_conflict_help "$_dest"
+                exit 1
+            fi
         fi
 
         success "feature '$_feature' 적용 완료"
@@ -251,9 +271,96 @@ _apply_features_internal() {
     success "모든 feature 적용 완료! 브랜치: $_branch"
 }
 
+_apply_optional_phase_patch() {
+    _dest="$1"
+    _mastodon_ver="$2"
+    _uri_ver="$3"
+    _feature="$4"
+    _phase="$5"
+
+    case "$_phase" in
+        ante)
+            _phase_name="ANTE"
+            _phase_patch=$(find_ante_patch "$_mastodon_ver" "$_uri_ver" "$_feature" || true)
+            ;;
+        post)
+            _phase_name="POST"
+            _phase_patch=$(find_post_patch "$_mastodon_ver" "$_uri_ver" "$_feature" || true)
+            ;;
+        *)
+            die "알 수 없는 apply 단계: $_phase"
+            ;;
+    esac
+
+    if [ -z "$_phase_patch" ]; then
+        return 0
+    fi
+
+    if [ ! -s "$_phase_patch" ]; then
+        warn "${_feature}~${_phase_name}.patch 파일이 비어있습니다 (건너뜁니다)"
+        return 0
+    fi
+
+    state_save "$_dest" "current_phase" "$_phase"
+    info "  ${_phase_name} 패치 적용 중: $(basename "$_phase_patch")"
+    if ! git_am "$_dest" "$_phase_patch"; then
+        warn "${_phase_name} 패치 충돌이 발생했습니다!"
+        return 1
+    fi
+}
+
+_apply_main_patch() {
+    _dest="$1"
+    _mastodon_ver="$2"
+    _uri_ver="$3"
+    _feature="$4"
+    _patch_file="$5"
+    _features_str="$6"
+    _index="$7"
+
+    state_save "$_dest" "current_phase" "main"
+
+    if git_am "$_dest" "$_patch_file"; then
+        return 0
+    fi
+
+    _pair_patch=$(find_applicable_pair_resolution_patch "$_mastodon_ver" "$_uri_ver" "$_feature" "$_features_str" "$_index" || true)
+    if [ -z "$_pair_patch" ]; then
+        warn "충돌이 발생했습니다!"
+        return 1
+    fi
+
+    info "  충돌 해소 패치 적용 중: $(basename "$_pair_patch")"
+    if ! git_apply_resolution_patch "$_dest" "$_pair_patch"; then
+        warn "충돌 해소 패치 적용 실패: $_pair_patch"
+        return 1
+    fi
+
+    if ! git_am_continue "$_dest"; then
+        warn "충돌 해소 후 git am --continue 실패"
+        return 1
+    fi
+
+    success "  충돌 해소 패치 적용 완료"
+}
+
+_apply_print_conflict_help() {
+    _dest="$1"
+
+    echo ""
+    echo "충돌을 해결한 후:"
+    echo "  1. 충돌 파일을 수정하세요"
+    echo "  2. git add <파일> 로 스테이징하세요"
+    echo "  3. 'uri apply $_dest --continue' 로 계속하세요"
+    echo ""
+    echo "작업을 중단하려면: 'uri apply $_dest --abort'"
+}
+
 # --continue 처리 (내부 함수)
 _apply_continue() {
     _dest="$1"
+
+    require_uri_root
 
     # 상태 확인
     if ! state_in_progress "$_dest"; then
@@ -265,8 +372,6 @@ _apply_continue() {
         die "apply 작업이 아닙니다. 현재 작업: $_operation"
     fi
 
-    require_uri_root
-
     # git am이 진행 중이면 continue
     if git_am_in_progress "$_dest"; then
         info "git am을 계속합니다..."
@@ -275,24 +380,41 @@ _apply_continue() {
         fi
     fi
 
-    # 현재 feature 완료 메시지
-    _current_feature=$(state_get "$_dest" "current_feature")
-    success "feature '$_current_feature' 적용 완료"
-
-    # 다음 feature로 진행
     _mastodon_ver=$(state_get "$_dest" "mastodon_version")
     _uri_ver=$(state_get "$_dest" "uri_version")
     _features_str=$(state_get "$_dest" "features")
     _current_index=$(state_get "$_dest" "current_index")
-    _next_index=$((_current_index + 1))
+    _current_phase=$(state_get "$_dest" "current_phase")
+
+    case "$_current_phase" in
+        ante)
+            _resume_index="$_current_index"
+            _resume_phase="main"
+            ;;
+        main|"")
+            _resume_index="$_current_index"
+            _resume_phase="post"
+            ;;
+        post)
+            _current_feature=$(state_get "$_dest" "current_feature")
+            success "feature '$_current_feature' 적용 완료"
+            _resume_index=$((_current_index + 1))
+            _resume_phase="ante"
+            ;;
+        *)
+            die "알 수 없는 apply 단계: $_current_phase"
+            ;;
+    esac
 
     # 남은 feature 적용
-    _apply_features_internal "$_dest" "$_mastodon_ver" "$_uri_ver" "$_features_str" "$_next_index"
+    _apply_features_internal "$_dest" "$_mastodon_ver" "$_uri_ver" "$_features_str" "$_resume_index" "$_resume_phase"
 }
 
 # --abort 처리 (내부 함수)
 _apply_abort() {
     _dest="$1"
+
+    require_uri_root
 
     # 상태 확인
     if ! state_in_progress "$_dest"; then

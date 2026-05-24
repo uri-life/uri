@@ -108,6 +108,31 @@ features:
 - 커밋 메타데이터(작성자, 날짜, 메시지)가 포함됩니다.
 - 하나의 `.patch` 파일에 여러 커밋이 포함될 수 있습니다.
 
+#### apply 전용 해소 패치
+
+`apply`는 feature 패치 옆의 관례적 파일명을 추가로 인식합니다. 이 파일들은 `manifest.yaml`에 등록하지 않습니다.
+
+| 파일명 | 적용 시점 |
+|--------|-----------|
+| `<feature>~ANTE.patch` | `<feature>.patch` 직전에 항상 적용 |
+| `<feature>~POST.patch` | `<feature>.patch` 완료 직후 항상 적용 |
+| `<current>~<completed>.patch` | `<current>.patch`가 충돌했고 `<completed>`가 이미 적용된 경우에만, 멈춘 `git am` 워크트리에 적용 |
+
+예시:
+
+```text
+versions/v4.3.2/patches/uri1.23/
+├── feature-a.patch
+├── feature-a~ANTE.patch
+├── feature-b.patch
+├── feature-b~POST.patch
+└── feature-b~feature-a.patch
+```
+
+인접한 두 feature의 정상 순서는 `a~ANTE` → `a` → `a~POST` → `b~ANTE` → `b` → `b~POST`입니다. `b.patch`가 충돌하면 이미 완료된 feature를 적용 순서의 역순으로 검사하여 첫 번째 `<b>~<completed>.patch`를 찾고, 그 패치를 충돌 중인 워크트리에 적용한 뒤 관련 파일을 stage하고 `git am --continue`를 시도합니다. pair 패치는 충돌이 실제로 발생했을 때만 적용되며, 별도의 해소 상태 파일이나 manifest 스키마는 사용하지 않습니다.
+
+해소 패치도 일반 패치처럼 상속 체인을 따라 자식 uri 버전에서 부모 uri 버전 순서로 찾습니다. 유지보수자는 필요한 파일을 직접 만들어 같은 패치 디렉터리에 배치합니다.
+
 ---
 
 ## CLI 명령어
@@ -211,6 +236,7 @@ uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
 ### 배포 적용 (`apply`)
 
 uri 버전의 모든 feature를 일괄 적용합니다. 배포 목적 명령이므로 `dev-dependencies`는 적용하지 않습니다.
+충돌이 예상되는 조합에는 [apply 전용 해소 패치](#apply-전용-해소-패치)를 둘 수 있습니다.
 
 ```sh
 # 모든 feature 적용
@@ -222,6 +248,8 @@ uri apply /path/to/mastodon --continue
 # 진행 중인 작업 중단 및 원복
 uri apply /path/to/mastodon --abort
 ```
+
+`--continue`/`--abort`를 위한 작업 상태는 패치 세트나 Mastodon 리포지토리 내부가 아니라 시스템 임시 디렉터리의 `uri/state/` 아래에 저장됩니다.
 
 ### 마이그레이션 (`migrate`)
 

@@ -138,5 +138,33 @@ Describe 'lib/inherit.sh'
         The status should be failure
       End
     End
+
+    Describe 'apply resolution patch lookup'
+      It 'ANTE 패치를 자식 우선으로 찾는다'
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/base~ANTE.patch"
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/base~ANTE.patch"
+        When call find_ante_patch "v4.3.0" "uri1.1" "base"
+        The output should include "uri1.1/base~ANTE.patch"
+      End
+
+      It 'POST 패치를 상속 체인에서 찾는다'
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/base~POST.patch"
+        When call find_post_patch "v4.3.0" "uri1.1" "base"
+        The output should include "uri1.0/base~POST.patch"
+      End
+
+      It 'pair 패치를 찾는다'
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/extra~base.patch"
+        When call find_pair_resolution_patch "v4.3.0" "uri1.1" "extra" "base"
+        The output should include "uri1.0/extra~base.patch"
+      End
+
+      It '완료 feature를 역순으로 검사한다'
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/extra~base.patch"
+        : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/extra~theme.patch"
+        When call find_applicable_pair_resolution_patch "v4.3.0" "uri1.1" "extra" "base theme extra" "2"
+        The output should include "extra~theme.patch"
+      End
+    End
   End
 End

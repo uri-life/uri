@@ -178,3 +178,86 @@ find_patch_file() {
 
     return 1
 }
+
+# 이름으로 패치 파일 경로 찾기 (상속 체인에서)
+# 사용법: find_named_patch_file "v4.3.2" "uri1.23" "custom_emoji~ANTE"
+find_named_patch_file() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _patch_name="$3"
+
+    _chain=$(get_inheritance_chain "$_mastodon_ver" "$_uri_ver")
+
+    for _manifest in $_chain; do
+        _patch_dir=$(dirname "$_manifest")
+        _patch_file="${_patch_dir}/${_patch_name}.patch"
+
+        if [ -f "$_patch_file" ]; then
+            echo "$_patch_file"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# apply 전처리 패치 찾기
+# 사용법: find_ante_patch "v4.3.2" "uri1.23" "feature"
+find_ante_patch() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _feature="$3"
+
+    find_named_patch_file "$_mastodon_ver" "$_uri_ver" "${_feature}~ANTE"
+}
+
+# apply 후처리 패치 찾기
+# 사용법: find_post_patch "v4.3.2" "uri1.23" "feature"
+find_post_patch() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _feature="$3"
+
+    find_named_patch_file "$_mastodon_ver" "$_uri_ver" "${_feature}~POST"
+}
+
+# 충돌 해소용 pair 패치 찾기
+# 사용법: find_pair_resolution_patch "v4.3.2" "uri1.23" "current" "completed"
+find_pair_resolution_patch() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _current="$3"
+    _completed="$4"
+
+    find_named_patch_file "$_mastodon_ver" "$_uri_ver" "${_current}~${_completed}"
+}
+
+# 정렬된 feature 목록과 현재 인덱스로 적용 가능한 pair 패치 찾기
+# 사용법: find_applicable_pair_resolution_patch "v4.3.2" "uri1.23" "current" "a b c" "2"
+find_applicable_pair_resolution_patch() {
+    _mastodon_ver="$1"
+    _uri_ver="$2"
+    _current="$3"
+    _features_str="$4"
+    _current_index="$5"
+
+    _count=0
+    _completed=""
+    for _feature in $_features_str; do
+        if [ "$_count" -lt "$_current_index" ]; then
+            _completed="${_completed}
+${_feature}"
+        fi
+        _count=$((_count + 1))
+    done
+
+    for _completed_feature in $(printf '%s\n' "$_completed" | sed '/^$/d' | reverse_lines); do
+        _patch=$(find_pair_resolution_patch "$_mastodon_ver" "$_uri_ver" "$_current" "$_completed_feature" || true)
+        if [ -n "$_patch" ]; then
+            echo "$_patch"
+            return 0
+        fi
+    done
+
+    return 1
+}

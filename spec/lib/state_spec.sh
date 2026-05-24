@@ -7,9 +7,10 @@ Describe 'lib/state.sh'
   Include "$LIB_DIR/state.sh"
 
   Describe 'state_file()'
-    It '상태 파일 경로를 반환한다'
+    It '리포지토리 밖의 상태 파일 경로를 반환한다'
       When call state_file "/tmp/repo"
-      The output should eq "/tmp/repo/.uri_state"
+      The output should match pattern "*/uri/state/*.state"
+      The output should not include "/tmp/repo/.uri_state"
     End
   End
 
@@ -18,6 +19,12 @@ Describe 'lib/state.sh'
       state_save "$TEST_TMPDIR" "mykey" "myvalue"
       When call state_get "$TEST_TMPDIR" "mykey"
       The output should eq "myvalue"
+    End
+
+    It '리포지토리 안에 .uri_state를 만들지 않는다'
+      state_save "$TEST_TMPDIR" "mykey" "myvalue"
+      When call test -f "${TEST_TMPDIR}/.uri_state"
+      The status should be failure
     End
 
     It '값을 덮어쓸 수 있다'

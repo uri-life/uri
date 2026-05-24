@@ -33,6 +33,9 @@ EOF
 
 # expand 명령 메인 함수
 cmd_expand() {
+    STATE_OPERATION="expand"
+    export STATE_OPERATION
+
     _mastodon_ver=""
     _uri_ver=""
     _feature=""
@@ -308,6 +311,8 @@ _apply_features() {
 _expand_continue() {
     _dest="$1"
 
+    require_uri_root
+
     # 상태 확인
     if ! state_in_progress "$_dest"; then
         die "진행 중인 작업이 없습니다."
@@ -317,8 +322,6 @@ _expand_continue() {
     if [ "$_operation" != "expand" ]; then
         die "expand 작업이 아닙니다. 현재 작업: $_operation"
     fi
-
-    require_uri_root
 
     # git am이 진행 중이면 continue
     if git_am_in_progress "$_dest"; then
@@ -353,6 +356,8 @@ _expand_continue() {
 # --abort 처리 (내부 함수)
 _expand_abort() {
     _dest="$1"
+
+    require_uri_root
 
     # 상태 확인
     if ! state_in_progress "$_dest"; then

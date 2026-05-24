@@ -192,8 +192,10 @@ Describe 'lib/commands/expand.sh'
       # 서브셸로 감싸서 exit 1이 테스트 프로세스를 종료하지 않도록 함
       ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$MASTODON_DIR" ) >/dev/null 2>&1 || true
 
-      # 상태 파일이 생성되었는지 확인
-      test -f "${MASTODON_DIR}/.uri_state" || return 1
+      # 외부 상태가 생성되었는지 확인
+      STATE_OPERATION="expand"
+      export STATE_OPERATION
+      state_in_progress "$MASTODON_DIR" || return 1
 
       # 충돌 해결: 파일 수정 + git add
       echo "resolved" > "${MASTODON_DIR}/hello.txt"

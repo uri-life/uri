@@ -117,6 +117,33 @@ git_am_continue() {
     git -C "$_dir" am --continue --no-gpg-sign
 }
 
+# 충돌 중인 git am 워크트리에 해소 패치 적용 후 관련 파일 스테이징
+# 사용법: git_apply_resolution_patch "/path/to/repo" "/path/to/resolution.patch"
+git_apply_resolution_patch() {
+    _dir="$1"
+    _patch="$2"
+    _paths=$(make_temp)
+    _sorted_paths=$(make_temp)
+    _numstat=$(make_temp)
+
+    git -C "$_dir" diff --name-only --diff-filter=U > "$_paths"
+    if ! git -C "$_dir" apply --numstat "$_patch" > "$_numstat"; then
+        return 1
+    fi
+    awk '{print $3}' "$_numstat" >> "$_paths"
+
+    if ! git -C "$_dir" apply --whitespace=nowarn "$_patch"; then
+        return 1
+    fi
+
+    sort -u "$_paths" > "$_sorted_paths"
+    while IFS= read -r _path; do
+        if [ -n "$_path" ]; then
+            git -C "$_dir" add -- "$_path" || return 1
+        fi
+    done < "$_sorted_paths"
+}
+
 # 패치 적용 중단 및 원복
 # 사용법: git_am_abort "/path/to/repo"
 git_am_abort() {

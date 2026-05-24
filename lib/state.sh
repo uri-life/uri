@@ -3,14 +3,91 @@
 # POSIX 호환 셸 스크립트
 # expand/collapse 중 충돌 발생 시 상태 저장 및 복원
 
-# 상태 파일 경로 (대상 리포지토리 내에 저장)
-STATE_FILE=".uri_state"
+# 상태 파일 디렉터리 (대상 리포지토리 밖에 저장)
+STATE_DIR="${URI_STATE_DIR:-${TMPDIR:-/tmp}/uri/state}"
+
+# 상태 키 생성을 위한 해시
+# 사용법: state_hash "input"
+state_hash() {
+    _input="$1"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$_input" | sha256sum | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        printf '%s' "$_input" | shasum -a 256 | awk '{print $1}'
+    else
+        printf '%s' "$_input" | cksum | awk '{print $1 "-" $2}'
+    fi
+}
+
+# 상태 디렉터리 생성
+_state_ensure_dir() {
+    if [ ! -d "$STATE_DIR" ]; then
+        mkdir -p "$STATE_DIR" || die "상태 디렉터리 생성 실패: $STATE_DIR"
+        chmod 700 "$STATE_DIR" 2>/dev/null || true
+    fi
+}
+
+# 상태 컨텍스트용 경로 해석
+_state_resolve_repo() {
+    _repo="$1"
+    resolve_path "$_repo"
+}
+
+_state_resolve_uri_root() {
+    if [ -n "${URI_ROOT:-}" ]; then
+        resolve_path "$URI_ROOT"
+    elif _root=$(find_uri_root 2>/dev/null); then
+        resolve_path "$_root"
+    else
+        echo ""
+    fi
+}
 
 # 상태 파일 전체 경로 반환
 # 사용법: state_file "/path/to/repo"
 state_file() {
     _repo="$1"
-    echo "${_repo}/${STATE_FILE}"
+    _repo_path=$(_state_resolve_repo "$_repo")
+    _uri_root=$(_state_resolve_uri_root)
+    _operation="${STATE_OPERATION:-default}"
+    _hash=$(state_hash "${_uri_root}
+${_repo_path}
+${_operation}")
+    echo "${STATE_DIR}/${_hash}.state"
+}
+
+# 상태 파일이 요청한 리포지토리용인지 확인
+_state_file_matches_repo() {
+    _repo="$1"
+    _state_file="$2"
+    _repo_path=$(_state_resolve_repo "$_repo")
+
+    [ -f "$_state_file" ] || return 1
+    _stored_repo=$(grep "^repo_path=" "$_state_file" 2>/dev/null | cut -d'=' -f2-)
+    [ "$_stored_repo" = "$_repo_path" ]
+}
+
+_state_ensure_file() {
+    _repo="$1"
+    _state_file=$(state_file "$_repo")
+    _repo_path=$(_state_resolve_repo "$_repo")
+
+    _state_ensure_dir
+
+    if [ -f "$_state_file" ]; then
+        if ! _state_file_matches_repo "$_repo" "$_state_file"; then
+            die "상태 파일 충돌이 감지되었습니다: $_state_file"
+        fi
+    else
+        {
+            echo "repo_path=${_repo_path}"
+            echo "uri_root=$(_state_resolve_uri_root)"
+        } > "$_state_file"
+        chmod 600 "$_state_file" 2>/dev/null || true
+    fi
+
+    echo "$_state_file"
 }
 
 # 상태 저장
@@ -19,12 +96,7 @@ state_save() {
     _repo="$1"
     _key="$2"
     _value="$3"
-    _state_file=$(state_file "$_repo")
-
-    # 파일이 없으면 생성
-    if [ ! -f "$_state_file" ]; then
-        : > "$_state_file"
-    fi
+    _state_file=$(_state_ensure_file "$_repo")
 
     # 기존 키가 있으면 제거
     if grep -q "^${_key}=" "$_state_file" 2>/dev/null; then
@@ -44,7 +116,7 @@ state_get() {
     _key="$2"
     _state_file=$(state_file "$_repo")
 
-    if [ -f "$_state_file" ]; then
+    if _state_file_matches_repo "$_repo" "$_state_file"; then
         grep "^${_key}=" "$_state_file" 2>/dev/null | cut -d'=' -f2-
     fi
 }
@@ -56,7 +128,7 @@ state_delete() {
     _key="$2"
     _state_file=$(state_file "$_repo")
 
-    if [ -f "$_state_file" ]; then
+    if _state_file_matches_repo "$_repo" "$_state_file"; then
         _tmp=$(make_temp)
         grep -v "^${_key}=" "$_state_file" > "$_tmp"
         mv "$_tmp" "$_state_file"
@@ -68,7 +140,9 @@ state_delete() {
 state_clear() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
-    rm -f "$_state_file"
+    if _state_file_matches_repo "$_repo" "$_state_file"; then
+        rm -f "$_state_file"
+    fi
 }
 
 # 상태 파일 존재 확인
@@ -76,7 +150,7 @@ state_clear() {
 state_exists() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
-    [ -f "$_state_file" ]
+    _state_file_matches_repo "$_repo" "$_state_file"
 }
 
 # 진행 중인 작업 확인
@@ -126,7 +200,7 @@ state_show() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
 
-    if [ ! -f "$_state_file" ]; then
+    if ! _state_file_matches_repo "$_repo" "$_state_file"; then
         info "진행 중인 작업이 없습니다."
         return 1
     fi
