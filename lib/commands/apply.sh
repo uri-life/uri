@@ -205,7 +205,7 @@ _apply_features_internal() {
         state_save "$_dest" "current_feature" "$_feature"
 
         # 패치 파일 찾기
-        _patch_file=$(find_patch_file "$_mastodon_ver" "$_uri_ver" "$_feature")
+        _patch_file=$(find_patch_file "$_mastodon_ver" "$_uri_ver" "$_feature" || true)
 
         if [ -z "$_patch_file" ] || [ ! -f "$_patch_file" ]; then
             warn "패치 파일을 찾을 수 없습니다: $_feature (건너뜁니다)"
