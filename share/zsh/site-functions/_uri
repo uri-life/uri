@@ -154,11 +154,11 @@ _uri_init() {
 
 # --- add ---
 _uri_add() {
-    local npos value_flags=(--name --description --dependencies --inherits)
+    local npos value_flags=(--name --description --dependencies --dev-dependencies --inherits)
     npos=$(_uri_count_pos "${value_flags[@]}")
 
     case "$words[CURRENT-1]" in
-        --name|--description|--dependencies|--inherits)
+        --name|--description|--dependencies|--dev-dependencies|--inherits)
             return
             ;;
     esac
@@ -169,6 +169,7 @@ _uri_add() {
             --name:feature\ 이름
             --description:feature\ 설명
             --dependencies:의존\ feature
+            --dev-dependencies:개발\ 의존\ feature
             --inherits:상속할\ uri\ 버전
         )'
         return
@@ -254,6 +255,7 @@ _uri_expand() {
             --continue:충돌\ 해결\ 후\ 계속
             --abort:작업\ 중단
             --force:기존\ 브랜치\ 삭제
+            --no-dev:개발\ 의존성\ 제외
         )'
         return
     fi

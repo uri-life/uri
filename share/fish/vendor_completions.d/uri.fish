@@ -159,14 +159,15 @@ complete -c uri -f -n '__fish_seen_subcommand_from add' -s h -l help          -d
 complete -c uri -f -n '__fish_seen_subcommand_from add' -l name         -x    -d 'feature 이름'
 complete -c uri -f -n '__fish_seen_subcommand_from add' -l description  -x    -d 'feature 설명'
 complete -c uri -f -n '__fish_seen_subcommand_from add' -l dependencies -x    -d '의존 feature'
+complete -c uri -f -n '__fish_seen_subcommand_from add' -l dev-dependencies -x -d '개발 의존 feature'
 complete -c uri -f -n '__fish_seen_subcommand_from add' -l inherits     -x    -d '상속할 uri 버전'
 
-complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --inherits) -eq 0' \
+complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --dev-dependencies --inherits) -eq 0' \
     -a '(__uri_mastodon_versions)' -d 'Mastodon 버전'
-complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --inherits) -eq 1' \
-    -a '(__uri_uri_versions (__uri_get_pos 1 --name --description --dependencies --inherits))' -d 'uri 버전'
-complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --inherits) -eq 2' \
-    -a '(__uri_features (__uri_get_pos 1 --name --description --dependencies --inherits) (__uri_get_pos 2 --name --description --dependencies --inherits))' -d 'feature'
+complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --dev-dependencies --inherits) -eq 1' \
+    -a '(__uri_uri_versions (__uri_get_pos 1 --name --description --dependencies --dev-dependencies --inherits))' -d 'uri 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from add; and test (__uri_pos_count --name --description --dependencies --dev-dependencies --inherits) -eq 2' \
+    -a '(__uri_features (__uri_get_pos 1 --name --description --dependencies --dev-dependencies --inherits) (__uri_get_pos 2 --name --description --dependencies --dev-dependencies --inherits))' -d 'feature'
 
 # --- remove ---
 complete -c uri -f -n '__fish_seen_subcommand_from remove' -s h -l help  -d '도움말'
@@ -192,6 +193,7 @@ complete -c uri -f -n '__fish_seen_subcommand_from expand' -s h -l help     -d '
 complete -c uri -f -n '__fish_seen_subcommand_from expand' -l continue       -d '충돌 해결 후 계속'
 complete -c uri -f -n '__fish_seen_subcommand_from expand' -l abort          -d '작업 중단'
 complete -c uri -f -n '__fish_seen_subcommand_from expand' -l force          -d '기존 브랜치 삭제'
+complete -c uri -f -n '__fish_seen_subcommand_from expand' -l no-dev         -d '개발 의존성 제외'
 
 # --continue/--abort 모드: destination(디렉터리)만
 complete -c uri -F -n '__fish_seen_subcommand_from expand; and __uri_has_flag --continue; and test (__uri_pos_count) -eq 0'

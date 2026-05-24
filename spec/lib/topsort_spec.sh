@@ -88,6 +88,38 @@ Describe 'lib/topsort.sh'
         # base → custom_emoji 간선이 있어야 함
         The contents of file "$_edges" should include "base custom_emoji"
       End
+
+      It '기본값으로 개발 의존성 간선을 제외한다'
+        _manifest="${TEST_TMPDIR}/dev-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_base
+EOF
+        _edges="${TEST_TMPDIR}/edges.txt"
+        build_dependency_graph "$_manifest" "$_edges"
+        The contents of file "$_edges" should not include "dev_base feature"
+      End
+
+      It 'include-dev가 true이면 개발 의존성 간선을 포함한다'
+        _manifest="${TEST_TMPDIR}/dev-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_base
+EOF
+        _edges="${TEST_TMPDIR}/edges.txt"
+        build_dependency_graph "$_manifest" "$_edges" "true"
+        The contents of file "$_edges" should include "dev_base feature"
+      End
     End
 
     Describe 'get_sorted_features()'
@@ -131,6 +163,81 @@ Describe 'lib/topsort.sh'
         cp "${PROJECT_ROOT}/spec/support/fixtures/sample_manifest.yaml" "$_manifest"
         When call get_feature_with_deps "$_manifest" "theme"
         The output should eq "theme"
+      End
+
+      It '기본값으로 개발 의존성을 제외한다'
+        _manifest="${TEST_TMPDIR}/dev-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_base
+EOF
+        When call get_feature_with_deps "$_manifest" "feature"
+        The output should include "feature"
+        The output should not include "dev_base"
+      End
+
+      It 'include-dev가 true이면 개발 의존성을 재귀적으로 포함한다'
+        _manifest="${TEST_TMPDIR}/dev-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  dev_mid:
+    dependencies:
+      - dev_base
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_mid
+EOF
+        When call get_feature_with_deps "$_manifest" "feature" "true"
+        The output should include "dev_base"
+        The output should include "dev_mid"
+        The output should include "feature"
+      End
+    End
+
+    Describe 'get_sorted_apply_features()'
+      It '개발 의존성 전용 feature를 apply 목록에서 제외한다'
+        _manifest="${TEST_TMPDIR}/apply-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_base
+EOF
+        When call get_sorted_apply_features "$_manifest"
+        The output should include "feature"
+        The output should not include "dev_base"
+      End
+
+      It '일반 의존성이기도 한 feature는 apply 목록에 포함한다'
+        _manifest="${TEST_TMPDIR}/apply-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  base:
+    dependencies: []
+  dev_helper:
+    dependencies:
+      - base
+  feature:
+    dependencies:
+      - base
+    dev-dependencies:
+      - dev_helper
+EOF
+        When call get_sorted_apply_features "$_manifest"
+        The output should include "base"
+        The output should include "feature"
+        The output should not include "dev_helper"
       End
     End
 

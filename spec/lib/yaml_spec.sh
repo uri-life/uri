@@ -204,6 +204,26 @@ Describe 'lib/yaml.sh'
       End
     End
 
+    Describe 'yaml_get_feature_dev_dependencies()'
+      It '개발 의존성 목록을 반환한다'
+        _dev_file="${TEST_TMPDIR}/dev-deps.yaml"
+        cat > "$_dev_file" <<'EOF'
+features:
+  feature:
+    dev-dependencies:
+      - dev_base
+EOF
+        When call yaml_get_feature_dev_dependencies "$_dev_file" "feature"
+        The output should eq "dev_base"
+      End
+
+      It '개발 의존성이 없으면 빈 결과를 반환한다'
+        When call yaml_get_feature_dev_dependencies "$_file" "theme"
+        The status should be success
+        The output should eq ""
+      End
+    End
+
     Describe 'yaml_get_inherits()'
       It 'inherits 값을 반환한다'
         _inh="${TEST_TMPDIR}/inh.yaml"

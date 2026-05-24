@@ -22,6 +22,7 @@ feature를 Mastodon 소스에 적용합니다.
   --continue         충돌 해결 후 계속 진행
   --abort            진행 중인 작업 중단 및 원복
   --force            이전 apply로 생성된 버전 브랜치를 자동 삭제합니다
+  --no-dev           개발 의존성을 제외하고 적용합니다
 
 예시:
   uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon
@@ -39,6 +40,7 @@ cmd_expand() {
     _continue=false
     _abort=false
     _force=false
+    _include_dev=true
 
     # 옵션 파싱 (먼저 옵션만 처리)
     _positional_args=""
@@ -56,6 +58,9 @@ cmd_expand() {
                 ;;
             --force)
                 _force=true
+                ;;
+            --no-dev)
+                _include_dev=false
                 ;;
             -*)
                 die "알 수 없는 옵션: $1"
@@ -133,7 +138,7 @@ cmd_expand() {
     # 워킹 트리 깨끗한지 확인
     git_ensure_clean "$_destination"
 
-    _expand_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_destination" "$_force"
+    _expand_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_destination" "$_force" "$_include_dev"
 }
 
 # feature 확장 메인 로직 (내부 함수)
@@ -143,6 +148,7 @@ _expand_feature() {
     _feature="$3"
     _dest="$4"
     _force="$5"
+    _include_dev="${6:-true}"
 
     # manifest 확인
     _manifest=$(resolve_manifest_path "$_mastodon_ver" "$_uri_ver")
@@ -157,7 +163,7 @@ _expand_feature() {
     fi
 
     # 의존성 포함하여 정렬된 feature 목록 생성
-    _sorted_features=$(get_feature_with_deps "$_merged" "$_feature")
+    _sorted_features=$(get_feature_with_deps "$_merged" "$_feature" "$_include_dev")
 
     if [ -z "$_sorted_features" ]; then
         die "feature 정렬 실패"

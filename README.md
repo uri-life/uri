@@ -75,12 +75,15 @@ features:
     name: "커스텀 이모지 확장"
     description: "커스텀 이모지 기능을 확장합니다."
     dependencies: []
+    dev-dependencies: []
 
   local_timeline:
     name: "로컬 타임라인 개선"
     description: "로컬 타임라인 UI를 개선합니다."
     dependencies:
       - "custom_emoji"  # feature 키로 참조
+    dev-dependencies:
+      - "debug_toolbar" # expand/collapse에서만 참조
 ```
 
 ### 규칙
@@ -93,6 +96,8 @@ features:
 #### 의존성
 
 - `dependencies`는 **feature 키 목록**입니다(파일명 아님).
+- `dev-dependencies`는 개발용 feature 키 목록이며, 기본 `expand`와 `collapse`에서만 포함됩니다.
+- `expand --no-dev`와 `apply`는 `dev-dependencies`를 포함하지 않습니다.
 - 상속으로 포함된 feature도 참조할 수 있습니다.
 - 적용/제거 시 **위상 정렬** 순서를 따릅니다.
 - **순환 의존성**이 발견되면 오류로 종료합니다.
@@ -138,7 +143,8 @@ uri add v4.3.2 uri1.23 custom_emoji
 uri add v4.3.2 uri1.23 custom_emoji \
     --name "커스텀 이모지 확장" \
     --description "커스텀 이모지 기능을 확장합니다." \
-    --dependencies "base_feature"
+    --dependencies "base_feature" \
+    --dev-dependencies "debug_feature"
 ```
 
 ### 제거 (`remove`)
@@ -172,7 +178,7 @@ uri list v4.3.2 uri1.23
 
 ### 펼치기 (`expand`)
 
-feature와 그 의존성을 Mastodon 소스에 적용합니다.
+feature와 그 의존성을 Mastodon 소스에 적용합니다. 기본적으로 `dev-dependencies`도 함께 적용하며, `--no-dev`를 사용하면 배포 적용(`apply`)과 같이 일반 의존성만 적용합니다.
 
 ```sh
 # feature 적용
@@ -186,11 +192,14 @@ uri expand /path/to/mastodon --abort
 
 # 이전 apply로 생성된 버전 브랜치를 자동 삭제하고 진행
 uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon --force
+
+# 개발 의존성을 제외하고 feature 적용
+uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon --no-dev
 ```
 
 ### 접기 (`collapse`)
 
-Mastodon 소스에서 feature와 그 의존성을 패치 파일로 추출합니다.
+Mastodon 소스에서 feature와 그 의존성을 패치 파일로 추출합니다. `dev-dependencies`도 함께 고려합니다.
 추출 후 태그 위치로 체크아웃하고 관련 브랜치를 삭제합니다.
 
 ```sh
@@ -201,7 +210,7 @@ uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
 
 ### 배포 적용 (`apply`)
 
-uri 버전의 모든 feature를 일괄 적용합니다.
+uri 버전의 모든 feature를 일괄 적용합니다. 배포 목적 명령이므로 `dev-dependencies`는 적용하지 않습니다.
 
 ```sh
 # 모든 feature 적용
@@ -285,6 +294,7 @@ ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/complet
 
 1. Mastodon 버전 태그를 기준으로 체크아웃
 2. 대상 feature와 그 의존성을 위상 정렬하여 순서대로 적용
+   - 기본적으로 `dev-dependencies`를 포함하며, `--no-dev` 지정 시 제외합니다
 3. 각 feature 적용 완료 시 **상태 추적용 Git 브랜치 생성** (`uri/{ver}/{uri_ver}/{feature}`)
    - feature 간 경계를 명확히 하고, 커밋 범위를 추적할 수 있습니다
 
@@ -294,7 +304,7 @@ ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/complet
 
 1. 상태 추적용 브랜치를 활용하여 feature별 커밋 범위 식별
    - `직전_feature_브랜치..해당_feature_브랜치` 범위로 한정
-2. 의존성 역순으로 `.patch` 파일 추출
+2. 개발 의존성을 포함한 의존성 역순으로 `.patch` 파일 추출
 3. 추출 완료 후 태그로 체크아웃하고 관련 브랜치를 삭제
 
 > **참고**: `collapse`는 충돌 없이 단방향으로 실행되므로 `--continue`/`--abort`를 지원하지 않습니다.
@@ -303,7 +313,7 @@ ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/complet
 
 - 지정한 uri 버전의 **모든 feature**를 위상 정렬 순서로 적용합니다.
 - 상속된 feature도 포함되며, 하나의 집합으로 취급됩니다.
+- `dev-dependencies`는 포함하지 않습니다.
 - 적용 후 `uri/{ver}/{uri_ver}` 브랜치를 생성합니다.
 - 주로 **배포 목적**으로 사용됩니다.
 - 충돌 시 `--continue` / `--abort`를 지원합니다.
-

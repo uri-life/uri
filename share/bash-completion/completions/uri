@@ -225,20 +225,20 @@ _uri_complete_init() {
 
 _uri_complete_add() {
     local npos
-    npos=$(_uri_count_positional "--name|--description|--dependencies|--inherits" "$@")
+    npos=$(_uri_count_positional "--name|--description|--dependencies|--dev-dependencies|--inherits" "$@")
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help --name --description --dependencies --inherits" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help --name --description --dependencies --dev-dependencies --inherits" -- "$cur"))
         return
     fi
 
     case "$prev" in
-        --name|--description|--dependencies|--inherits)
+        --name|--description|--dependencies|--dev-dependencies|--inherits)
             return  # 자유 입력
             ;;
     esac
 
-    local vflags="--name|--description|--dependencies|--inherits"
+    local vflags="--name|--description|--dependencies|--dev-dependencies|--inherits"
     case "$npos" in
         0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
         1)
@@ -314,7 +314,7 @@ _uri_complete_expand() {
     npos=$(_uri_count_positional "" "$@")
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help --continue --abort --force" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help --continue --abort --force --no-dev" -- "$cur"))
         return
     fi
 

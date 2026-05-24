@@ -19,6 +19,7 @@ uri 버전 또는 feature를 추가합니다.
   --name NAME            feature 이름 (표시용)
   --description DESC     feature 설명
   --dependencies DEPS    의존하는 feature (쉼표 구분)
+  --dev-dependencies DEPS 개발 중에만 의존하는 feature (쉼표 구분)
   --inherits VERSION     상속할 uri 버전
 
 예시:
@@ -41,6 +42,7 @@ cmd_add() {
     _name=""
     _description=""
     _dependencies=""
+    _dev_dependencies=""
     _inherits=""
 
     # 옵션 파싱
@@ -61,6 +63,10 @@ cmd_add() {
             --dependencies)
                 shift
                 _dependencies="$1"
+                ;;
+            --dev-dependencies)
+                shift
+                _dev_dependencies="$1"
                 ;;
             --inherits)
                 shift
@@ -104,7 +110,7 @@ cmd_add() {
     if [ -z "$_feature" ]; then
         _add_uri_version "$_mastodon_ver" "$_uri_ver" "$_inherits"
     else
-        _add_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_name" "$_description" "$_dependencies"
+        _add_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_name" "$_description" "$_dependencies" "$_dev_dependencies"
     fi
 }
 
@@ -151,6 +157,7 @@ _add_feature() {
     _name="$4"
     _description="$5"
     _dependencies="$6"
+    _dev_dependencies="$7"
 
     _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
     _manifest="${_uri_dir}/manifest.yaml"
@@ -183,28 +190,18 @@ _add_feature() {
 
     # dependencies 추가
     if [ -n "$_dependencies" ]; then
-        # 쉼표 구분을 배열로 변환
-        _dep_array="["
-        _first=true
-        # IFS를 쉼표로 설정하여 분리
-        _old_ifs="$IFS"
-        IFS=','
-        for _dep in $_dependencies; do
-            # 앞뒤 공백 제거
-            _dep=$(echo "$_dep" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            if [ "$_first" = true ]; then
-                _dep_array="${_dep_array}\"$_dep\""
-                _first=false
-            else
-                _dep_array="${_dep_array}, \"$_dep\""
-            fi
-        done
-        IFS="$_old_ifs"
-        _dep_array="${_dep_array}]"
-
-        yq eval -i ".features.$_feature.dependencies = $_dep_array" "$_manifest"
+        _dep_array=$(_csv_to_yaml_array "$_dependencies")
+        yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "$_dep_array"
     else
-        yq eval -i ".features.$_feature.dependencies = []" "$_manifest"
+        yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "[]"
+    fi
+
+    # dev-dependencies 추가
+    if [ -n "$_dev_dependencies" ]; then
+        _dev_dep_array=$(_csv_to_yaml_array "$_dev_dependencies")
+        yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "$_dev_dep_array"
+    else
+        yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "[]"
     fi
 
     # 빈 패치 파일 생성
@@ -212,4 +209,28 @@ _add_feature() {
 
     success "feature 추가 완료: $_feature"
     info "패치 파일: $_patch_file"
+}
+
+_csv_to_yaml_array() {
+    _csv="$1"
+    _array="["
+    _first=true
+    _old_ifs="$IFS"
+    IFS=','
+    for _item in $_csv; do
+        _item=$(echo "$_item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ -z "$_item" ]; then
+            continue
+        fi
+        if [ "$_first" = true ]; then
+            _array="${_array}\"$_item\""
+            _first=false
+        else
+            _array="${_array}, \"$_item\""
+        fi
+    done
+    IFS="$_old_ifs"
+    _array="${_array}]"
+
+    echo "$_array"
 }

@@ -82,6 +82,63 @@ Describe 'lib/commands/expand.sh'
     End
   End
 
+  Describe '개발 의존성'
+    setup_expand_dev_env() {
+      cd "$TEST_TMPDIR" || return 1
+      cmd_init "v4.3.0" >/dev/null 2>&1
+      URI_ROOT="$TEST_TMPDIR"
+      export URI_ROOT
+      cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "dev_base" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "feature" --dev-dependencies "dev_base" >/dev/null 2>&1 || true
+
+      MASTODON_DIR="${TEST_TMPDIR}/mastodon"
+      export MASTODON_DIR
+      mkdir -p "$MASTODON_DIR"
+      git init -b main "$MASTODON_DIR" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" config user.email "test@example.com"
+      git -C "$MASTODON_DIR" config user.name "Test"
+      git -C "$MASTODON_DIR" config tag.gpgSign false
+      git -C "$MASTODON_DIR" config commit.gpgSign false
+      echo "initial" > "${MASTODON_DIR}/README.md"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Initial commit" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" tag "v4.3.0"
+
+      _patch_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0"
+
+      echo "dev" > "${MASTODON_DIR}/dev.txt"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Add dev dependency" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/dev_base.patch"
+
+      git -C "$MASTODON_DIR" checkout -b feature_patch "v4.3.0" >/dev/null 2>&1
+      echo "feature" > "${MASTODON_DIR}/feature.txt"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Add feature" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/feature.patch"
+
+      git -C "$MASTODON_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
+    }
+    BeforeEach 'setup_expand_dev_env'
+
+    It '기본 expand는 개발 의존성을 포함한다'
+      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR"
+      The status should be success
+      The output should include "적용 완료"
+      The path "${MASTODON_DIR}/dev.txt" should be exist
+      The path "${MASTODON_DIR}/feature.txt" should be exist
+    End
+
+    It '--no-dev는 개발 의존성을 제외한다'
+      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR" --no-dev
+      The status should be success
+      The output should include "적용 완료"
+      The path "${MASTODON_DIR}/dev.txt" should not be exist
+      The path "${MASTODON_DIR}/feature.txt" should be exist
+    End
+  End
+
   Describe '충돌 시 --continue / --abort'
     setup_conflict_env() {
       cd "$TEST_TMPDIR" || return 1

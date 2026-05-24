@@ -99,7 +99,7 @@ _collapse_all_features() {
 
     # 의존성 포함하여 정렬된 feature 목록 (의존되는 것이 먼저)
     # manifest에 없는 feature는 타겟만 처리
-    _sorted_features=$(get_feature_with_deps "$_merged" "$_target_feature")
+    _sorted_features=$(get_feature_with_deps_with_dev "$_merged" "$_target_feature")
 
     # manifest에 feature가 없으면 타겟 feature만 처리
     if [ -z "$_sorted_features" ]; then
@@ -239,7 +239,7 @@ _find_prev_branch_from_merged() {
     _src="$5"
 
     # 의존성 포함하여 정렬된 feature 목록
-    _sorted=$(get_feature_with_deps "$_merged" "$_target_feature")
+    _sorted=$(get_feature_with_deps_with_dev "$_merged" "$_target_feature")
 
     # target feature 바로 앞의 feature 찾기
     _prev=""
@@ -281,6 +281,8 @@ _add_feature_to_manifest() {
     yq eval -i ".features.$_feature = {}" "$_manifest"
     yq eval -i ".features.$_feature.name = \"$_feature\"" "$_manifest"
     yq eval -i ".features.$_feature.description = \"\"" "$_manifest"
+    yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "[]"
+    yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "[]"
 
     info "  manifest에 feature '$_feature' 추가됨"
 }

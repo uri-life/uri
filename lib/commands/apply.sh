@@ -144,7 +144,7 @@ _apply_all_features() {
     _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
 
     # 모든 feature 목록 (정렬됨)
-    _sorted_features=$(get_sorted_features "$_merged")
+    _sorted_features=$(get_sorted_apply_features "$_merged")
 
     if [ -z "$_sorted_features" ]; then
         warn "적용할 feature가 없습니다."

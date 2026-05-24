@@ -123,6 +123,16 @@ yaml_get_feature_dependencies() {
     yaml_array_items "$_file" ".features.$_feature.dependencies"
 }
 
+yaml_get_feature_dev_dependencies() {
+    _file="$1"
+    _feature="$2"
+    _path=".features.$_feature.\"dev-dependencies\""
+
+    if yaml_has "$_file" "$_path"; then
+        yaml_array_items "$_file" "$_path"
+    fi
+}
+
 # feature 목록 반환
 # 사용법: yaml_list_features "manifest.yaml"
 yaml_list_features() {

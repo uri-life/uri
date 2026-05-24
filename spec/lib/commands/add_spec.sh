@@ -105,6 +105,21 @@ Describe 'lib/commands/add.sh'
       The output should include "base"
     End
 
+    It '--dev-dependencies 옵션으로 개발 의존성을 설정할 수 있다'
+      cmd_add "v4.3.0" "uri1.0" "dev_base" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "feat" --dev-dependencies "dev_base" >/dev/null 2>&1 || true
+      _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml"
+      When call yaml_get_feature_dev_dependencies "$_manifest" "feat"
+      The output should include "dev_base"
+    End
+
+    It '새 feature는 빈 개발 의존성 배열을 가진다'
+      cmd_add "v4.3.0" "uri1.0" "feat" >/dev/null 2>&1 || true
+      _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml"
+      When call yaml_has "$_manifest" ".features.feat.\"dev-dependencies\""
+      The status should be success
+    End
+
     It '중복 feature는 die한다'
       cmd_add "v4.3.0" "uri1.0" "dup" >/dev/null 2>&1 || true
       When run script -e -c "
