@@ -153,6 +153,30 @@ Describe 'lib/git.sh'
       End
     End
 
+    Describe 'git_is_ancestor()'
+      It '선조 커밋이면 true를 반환한다'
+        _first=$(git -C "$REPO_DIR" rev-list --max-parents=0 HEAD)
+        echo "descendant" > "${REPO_DIR}/descendant.txt"
+        git -C "$REPO_DIR" add . >/dev/null 2>&1
+        git -C "$REPO_DIR" commit -m "descendant" >/dev/null 2>&1
+        When call git_is_ancestor "$REPO_DIR" "$_first" "HEAD"
+        The status should be success
+      End
+
+      It '선조가 아니면 false를 반환한다'
+        git_create_branch_at "$REPO_DIR" "side" "HEAD"
+        echo "main" > "${REPO_DIR}/main.txt"
+        git -C "$REPO_DIR" add . >/dev/null 2>&1
+        git -C "$REPO_DIR" commit -m "main change" >/dev/null 2>&1
+        git_checkout_branch "$REPO_DIR" "side"
+        echo "side" > "${REPO_DIR}/side.txt"
+        git -C "$REPO_DIR" add . >/dev/null 2>&1
+        git -C "$REPO_DIR" commit -m "side change" >/dev/null 2>&1
+        When call git_is_ancestor "$REPO_DIR" "main" "side"
+        The status should be failure
+      End
+    End
+
     Describe 'git_has_diff()'
       It '동일한 ref는 diff가 없다'
         When call git_has_diff "$REPO_DIR" "HEAD" "HEAD"

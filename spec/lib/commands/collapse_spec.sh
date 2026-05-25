@@ -130,4 +130,73 @@ Describe 'lib/commands/collapse.sh'
       The contents of file "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/feature.patch" should include "feature.txt"
     End
   End
+
+  Describe '다중 의존성'
+    setup_collapse_multi_dep_env() {
+      cd "$TEST_TMPDIR" || return 1
+      cmd_init "v4.3.0" >/dev/null 2>&1
+      URI_ROOT="$TEST_TMPDIR"
+      export URI_ROOT
+      cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "dep_a" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "dep_b" >/dev/null 2>&1 || true
+      cmd_add "v4.3.0" "uri1.0" "feature" --dependencies "dep_a,dep_b" >/dev/null 2>&1 || true
+
+      MASTODON_DIR="${TEST_TMPDIR}/mastodon"
+      export MASTODON_DIR
+      mkdir -p "$MASTODON_DIR"
+      git init -b main "$MASTODON_DIR" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" config user.email "test@example.com"
+      git -C "$MASTODON_DIR" config user.name "Test"
+      git -C "$MASTODON_DIR" config tag.gpgSign false
+      git -C "$MASTODON_DIR" config commit.gpgSign false
+      echo "initial" > "${MASTODON_DIR}/README.md"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Initial commit" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" tag "v4.3.0"
+
+      _patch_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0"
+
+      echo "dep-a-only" > "${MASTODON_DIR}/dep_a.txt"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Add dep A" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/dep_a.patch"
+
+      git -C "$MASTODON_DIR" checkout -b build_dep_b "v4.3.0" >/dev/null 2>&1
+      echo "dep-b-only" > "${MASTODON_DIR}/dep_b.txt"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Add dep B" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/dep_b.patch"
+
+      git -C "$MASTODON_DIR" checkout -b build_feature "v4.3.0" >/dev/null 2>&1
+      echo "feature-only" > "${MASTODON_DIR}/feature.txt"
+      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
+      git -C "$MASTODON_DIR" commit -m "Add feature" >/dev/null 2>&1
+      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/feature.patch"
+
+      git -C "$MASTODON_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
+      cmd_expand "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR" >/dev/null 2>&1 || true
+    }
+    BeforeEach 'setup_collapse_multi_dep_env'
+
+    It 'collapse는 sibling 의존성 커밋을 서로 섞지 않는다'
+      cmd_collapse "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR" >/dev/null 2>&1 || true
+
+      _dep_a_patch="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/dep_a.patch"
+      _dep_b_patch="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/dep_b.patch"
+      _feature_patch="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/feature.patch"
+
+      The contents of file "$_dep_a_patch" should include "dep-a-only"
+      The contents of file "$_dep_a_patch" should not include "dep-b-only"
+      The contents of file "$_dep_a_patch" should not include "feature-only"
+
+      The contents of file "$_dep_b_patch" should include "dep-b-only"
+      The contents of file "$_dep_b_patch" should not include "dep-a-only"
+      The contents of file "$_dep_b_patch" should not include "feature-only"
+
+      The contents of file "$_feature_patch" should include "feature-only"
+      The contents of file "$_feature_patch" should not include "dep-a-only"
+      The contents of file "$_feature_patch" should not include "dep-b-only"
+    End
+  End
 End

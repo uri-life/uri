@@ -123,7 +123,7 @@ _collapse_all_features() {
 
     for _feature in $_reversed_features; do
         _collapse_result=0
-        _collapse_single_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src" "$_merged" || _collapse_result=$?
+        _collapse_single_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src" "$_sorted_features" || _collapse_result=$?
 
         case $_collapse_result in
             0) _saved_count=$((_saved_count + 1)) ;;   # 패치 저장됨
@@ -164,7 +164,7 @@ _collapse_single_feature() {
     _uri_ver="$2"
     _feature="$3"
     _src="$4"
-    _merged="$5"
+    _collapse_features="$5"
 
     _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
     _manifest="${_uri_dir}/manifest.yaml"
@@ -176,8 +176,8 @@ _collapse_single_feature() {
         return 2
     fi
 
-    # 이전 feature 브랜치 찾기 (의존성 순서에서 바로 앞)
-    _prev_branch=$(_find_prev_branch_from_merged "$_merged" "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src")
+    # 이전 feature 브랜치 찾기 (expand가 만든 실제 브랜치 ancestry 기준)
+    _prev_branch=$(_find_prev_branch_from_feature_branches "$_collapse_features" "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src")
 
     if [ -z "$_prev_branch" ]; then
         die "이전 브랜치를 결정할 수 없습니다."
@@ -230,33 +230,44 @@ _collapse_single_feature() {
     return 0
 }
 
-# 병합된 manifest를 사용하여 이전 feature 브랜치 찾기 (내부 함수)
-_find_prev_branch_from_merged() {
-    _merged="$1"
+# expand가 만든 feature 브랜치들에서 이전 checkpoint 브랜치 찾기 (내부 함수)
+_find_prev_branch_from_feature_branches() {
+    _features="$1"
     _mastodon_ver="$2"
     _uri_ver="$3"
     _target_feature="$4"
     _src="$5"
 
-    # 의존성 포함하여 정렬된 feature 목록
-    _sorted=$(get_feature_with_deps_with_dev "$_merged" "$_target_feature")
+    _target_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_target_feature")
+    _best_branch=""
+    _best_distance=""
 
-    # target feature 바로 앞의 feature 찾기
-    _prev=""
-    for _f in $_sorted; do
-        if [ "$_f" = "$_target_feature" ]; then
-            break
+    for _candidate_feature in $_features; do
+        if [ "$_candidate_feature" = "$_target_feature" ]; then
+            continue
         fi
-        _prev="$_f"
+
+        _candidate_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_candidate_feature")
+        if ! git_branch_exists "$_src" "$_candidate_branch"; then
+            continue
+        fi
+
+        if git_is_ancestor "$_src" "$_candidate_branch" "$_target_branch"; then
+            _distance=$(git_commit_count "$_src" "${_candidate_branch}..${_target_branch}")
+            case "$_distance" in
+                ''|*[!0-9]*) continue ;;
+            esac
+
+            if [ -z "$_best_distance" ] || [ "$_distance" -lt "$_best_distance" ]; then
+                _best_distance="$_distance"
+                _best_branch="$_candidate_branch"
+            fi
+        fi
     done
 
-    # 이전 feature가 있으면 그 브랜치
-    if [ -n "$_prev" ]; then
-        _prev_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_prev")
-        if git_branch_exists "$_src" "$_prev_branch"; then
-            echo "$_prev_branch"
-            return
-        fi
+    if [ -n "$_best_branch" ]; then
+        echo "$_best_branch"
+        return
     fi
 
     # 이전 feature가 없으면 태그를 베이스로 사용

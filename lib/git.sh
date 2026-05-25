@@ -183,6 +183,15 @@ git_commit_count() {
     git -C "$_dir" rev-list --count "$_range" 2>/dev/null || echo "0"
 }
 
+# 커밋/브랜치 선조 관계 확인
+# 사용법: if git_is_ancestor "/path/to/repo" "ancestor" "descendant"; then ...
+git_is_ancestor() {
+    _dir="$1"
+    _ancestor="$2"
+    _descendant="$3"
+    git -C "$_dir" merge-base --is-ancestor "$_ancestor" "$_descendant" 2>/dev/null
+}
+
 # HEAD를 detach (현재 브랜치에서 분리)
 # 사용법: git_detach_head "/path/to/repo"
 git_detach_head() {

@@ -75,6 +75,13 @@ Describe 'lib/commands/expand.sh'
       The status should be success
     End
 
+    It '빈 패치도 checkpoint 브랜치를 생성한다'
+      cmd_add "v4.3.0" "uri1.0" "empty" >/dev/null 2>&1 || true
+      cmd_expand "v4.3.0" "uri1.0" "empty" "$MASTODON_DIR" >/dev/null 2>&1 || true
+      When call git_branch_exists "$MASTODON_DIR" "uri/v4.3.0/uri1.0/empty"
+      The status should be success
+    End
+
     It '완료 후 상태 파일이 정리된다'
       cmd_expand "v4.3.0" "uri1.0" "base" "$MASTODON_DIR" >/dev/null 2>&1 || true
       When call state_exists "$MASTODON_DIR"
