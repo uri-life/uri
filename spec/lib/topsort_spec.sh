@@ -53,14 +53,16 @@ Describe 'lib/topsort.sh'
       The line 3 should eq "c"
     End
 
-    It '순환 의존성을 감지하면 die한다 (GNU tsort)'
-      # macOS의 BSD tsort는 순환 시에도 exit 0을 반환하므로
-      # GNU tsort 환경에서만 검증 (CI에서 테스트)
+    It '순환 의존성을 감지하면 die한다'
       _edges="${TEST_TMPDIR}/cycle.txt"
       printf "a b\nb a\n" > "$_edges"
-      _result=$(tsort "$_edges" 2>&1) || true
-      When call echo "$_result"
-      The output should include "cycle"
+      When run script -e -c "
+        . '$LIB_DIR/common.sh'
+        . '$LIB_DIR/topsort.sh'
+        topsort_file '$_edges'
+      "
+      The status should be failure
+      The stderr should include "순환 의존성"
     End
 
     It '자기 자신만 참조하는 노드를 처리한다'
@@ -145,6 +147,69 @@ EOF
         }
         When call check_order
         The status should be success
+      End
+    End
+
+    Describe 'render_dependency_graph_tree()'
+      It 'tree 형식으로 의존성 그래프를 출력한다'
+        _manifest="${TEST_TMPDIR}/manifest.yaml"
+        cp "${PROJECT_ROOT}/spec/support/fixtures/sample_manifest.yaml" "$_manifest"
+        When call render_dependency_graph_tree "$_manifest"
+        The status should be success
+        The output should include "base"
+        The output should include "└─ custom_emoji"
+        The output should include "theme"
+      End
+
+      It 'include-dev가 true이면 개발 의존성을 출력한다'
+        _manifest="${TEST_TMPDIR}/dev-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  dev_base:
+    dependencies: []
+  feature:
+    dependencies: []
+    dev-dependencies:
+      - dev_base
+EOF
+        When call render_dependency_graph_tree "$_manifest" "true"
+        The output should include "dev_base"
+        The output should include "└─ feature"
+      End
+
+      It '형제 feature를 이전 자식의 하위 항목으로 들여쓰지 않는다'
+        _manifest="${TEST_TMPDIR}/sibling-manifest.yaml"
+        cat > "$_manifest" <<'EOF'
+features:
+  root:
+    dependencies: []
+  first:
+    dependencies:
+      - root
+  first_child:
+    dependencies:
+      - first
+  second:
+    dependencies:
+      - root
+EOF
+        When call render_dependency_graph_tree "$_manifest"
+        The output should include "├─ second"
+        The output should include "└─ first"
+        The output should include "   └─ first_child"
+        The output should not include "│  └─ first_child"
+      End
+    End
+
+    Describe 'render_dependency_graph_dot()'
+      It 'DOT 형식으로 의존성 그래프를 출력한다'
+        _manifest="${TEST_TMPDIR}/manifest.yaml"
+        cp "${PROJECT_ROOT}/spec/support/fixtures/sample_manifest.yaml" "$_manifest"
+        When call render_dependency_graph_dot "$_manifest"
+        The status should be success
+        The output should include "digraph dependencies"
+        The output should include '"base" -> "custom_emoji";'
+        The output should include '"theme";'
       End
     End
 
@@ -252,17 +317,8 @@ EOF
       It '순환 의존성이 있으면 감지한다'
         _manifest="${TEST_TMPDIR}/circular.yaml"
         cp "${PROJECT_ROOT}/spec/support/fixtures/circular_manifest.yaml" "$_manifest"
-        # macOS의 BSD tsort는 cycle에서 exit 0을 반환하므로
-        # check_circular_deps가 stderr를 확인하는 방식이 아닌 경우 플랫폼 차이로 실패할 수 있음
-        check_result() {
-          _m="${TEST_TMPDIR}/circular.yaml"
-          _edges=$(make_temp)
-          build_dependency_graph "$_m" "$_edges"
-          _out=$(tsort "$_edges" 2>&1) || true
-          echo "$_out" | grep -q "cycle"
-        }
-        When call check_result
-        The status should be success
+        When call check_circular_deps "$_manifest"
+        The status should be failure
       End
     End
   End

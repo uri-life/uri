@@ -88,7 +88,7 @@ function __uri_positional_args
         if test "$found_subcmd" = false
             # 서브커맨드 찾기
             switch $tok
-                case init add remove list expand collapse apply migrate
+                case init add remove list expand collapse apply graph migrate
                     set found_subcmd true
                 case '-*'
                     continue
@@ -144,6 +144,7 @@ complete -c uri -f -n '__fish_use_subcommand' -a list     -d '버전·feature �
 complete -c uri -f -n '__fish_use_subcommand' -a expand   -d 'feature를 Mastodon 소스에 적용'
 complete -c uri -f -n '__fish_use_subcommand' -a collapse -d '패치 파일로 추출'
 complete -c uri -f -n '__fish_use_subcommand' -a apply    -d '모든 feature 일괄 적용'
+complete -c uri -f -n '__fish_use_subcommand' -a graph    -d 'feature 의존성 그래프 출력'
 complete -c uri -f -n '__fish_use_subcommand' -a migrate  -d '브랜치 기반에서 마이그레이션'
 complete -c uri -f -n '__fish_use_subcommand' -s h -l help    -d '도움말'
 complete -c uri -f -n '__fish_use_subcommand' -s v -l version -d '버전 출력'
@@ -234,6 +235,16 @@ complete -c uri -f -n '__fish_seen_subcommand_from apply; and not __uri_has_flag
 complete -c uri -f -n '__fish_seen_subcommand_from apply; and not __uri_has_flag --continue; and not __uri_has_flag --abort; and test (__uri_pos_count) -eq 1' \
     -a '(__uri_uri_versions (__uri_get_pos 1))' -d 'uri 버전'
 complete -c uri -F -n '__fish_seen_subcommand_from apply; and not __uri_has_flag --continue; and not __uri_has_flag --abort; and test (__uri_pos_count) -eq 2'
+
+# --- graph ---
+complete -c uri -f -n '__fish_seen_subcommand_from graph' -s h -l help        -d '도움말'
+complete -c uri -f -n '__fish_seen_subcommand_from graph' -l include-dev       -d '개발 의존성 포함'
+complete -c uri -f -n '__fish_seen_subcommand_from graph' -l format -xa 'tree dot' -d '출력 형식'
+
+complete -c uri -f -n '__fish_seen_subcommand_from graph; and test (__uri_pos_count --format) -eq 0' \
+    -a '(__uri_mastodon_versions)' -d 'Mastodon 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from graph; and test (__uri_pos_count --format) -eq 1' \
+    -a '(__uri_uri_versions (__uri_get_pos 1 --format))' -d 'uri 버전'
 
 # --- migrate ---
 complete -c uri -f -n '__fish_seen_subcommand_from migrate' -s h -l help -d '도움말'

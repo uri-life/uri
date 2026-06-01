@@ -25,6 +25,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/commands/expand.sh"
 . "${LIB_DIR}/commands/collapse.sh"
 . "${LIB_DIR}/commands/apply.sh"
+. "${LIB_DIR}/commands/graph.sh"
 . "${LIB_DIR}/commands/migrate.sh"
 
 # 버전
@@ -48,6 +49,7 @@ uri - Uri Reconstruction Instrument v${VERSION}
   expand     feature를 Mastodon 소스에 적용
   collapse   Mastodon 소스에서 feature를 패치 파일로 추출
   apply      uri 버전의 모든 feature를 일괄 적용
+  graph      feature 의존성 그래프 출력
   migrate    브랜치 기반 패치 세트에서 마이그레이션
 
 전역 옵션:
@@ -68,6 +70,7 @@ uri - Uri Reconstruction Instrument v${VERSION}
   uri expand v4.3.2 uri1.23 custom_emoji /path      # feature 적용
   uri collapse v4.3.2 uri1.23 custom_emoji /path    # feature 추출
   uri apply v4.3.2 uri1.23 /path                    # 전체 적용
+  uri graph v4.3.2 uri1.23                           # 의존성 그래프 출력
 EOF
 }
 
@@ -130,6 +133,10 @@ main() {
         apply)
             shift
             cmd_apply "$@"
+            ;;
+        graph)
+            shift
+            cmd_graph "$@"
             ;;
         migrate)
             shift

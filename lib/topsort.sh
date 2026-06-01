@@ -14,9 +14,9 @@ topsort_file() {
     _result=$(tsort "$_edges_file" 2>&1)
     _exit_code=$?
 
-    if [ $_exit_code -ne 0 ]; then
+    if [ $_exit_code -ne 0 ] || _tsort_reports_cycle "$_result"; then
         # tsort가 순환을 감지하면 에러 메시지 출력
-        if echo "$_result" | grep -q "cycle"; then
+        if _tsort_reports_cycle "$_result"; then
             die "순환 의존성이 발견되었습니다: $_result"
         else
             die "위상 정렬 실패: $_result"
@@ -96,6 +96,128 @@ get_sorted_features() {
 get_sorted_features_with_dev() {
     _manifest="$1"
     get_sorted_features "$_manifest" "true"
+}
+
+# 의존성 그래프를 tree 형태로 출력
+# 사용법: render_dependency_graph_tree "manifest.yaml" ["true"|"false"]
+render_dependency_graph_tree() {
+    _manifest="$1"
+    _include_dev="${2:-false}"
+    _edges_file=$(make_temp)
+    _sorted_file=$(make_temp)
+
+    build_dependency_graph "$_manifest" "$_edges_file" "$_include_dev"
+
+    if [ ! -s "$_edges_file" ]; then
+        return 0
+    fi
+
+    topsort_file "$_edges_file" > "$_sorted_file"
+
+    awk '
+        FNR == NR {
+            order[++node_count] = $0
+            next
+        }
+
+        {
+            from = $1
+            to = $2
+            if (from != to) {
+                edge[from SUBSEP to] = 1
+                has_parent[to] = 1
+            }
+        }
+
+        END {
+            for (i = 1; i <= node_count; i++) {
+                node = order[i]
+                if (!(node in has_parent)) {
+                    print node
+                    print_children(node, "")
+                }
+            }
+        }
+
+        function print_children(node, prefix, i, child, child_count, seen, connector, child_prefix) {
+            child_count = 0
+            for (i = 1; i <= node_count; i++) {
+                child = order[i]
+                if ((node SUBSEP child) in edge) {
+                    child_count++
+                }
+            }
+
+            seen = 0
+            for (i = 1; i <= node_count; i++) {
+                child = order[i]
+                if ((node SUBSEP child) in edge) {
+                    seen++
+                    if (seen == child_count) {
+                        connector = "└─ "
+                        child_prefix = prefix "   "
+                    } else {
+                        connector = "├─ "
+                        child_prefix = prefix "│  "
+                    }
+                    print prefix connector child
+                    print_children(child, child_prefix)
+                }
+            }
+        }
+    ' "$_sorted_file" "$_edges_file"
+}
+
+# 의존성 그래프를 Graphviz DOT 형태로 출력
+# 사용법: render_dependency_graph_dot "manifest.yaml" ["true"|"false"]
+render_dependency_graph_dot() {
+    _manifest="$1"
+    _include_dev="${2:-false}"
+    _edges_file=$(make_temp)
+    _sorted_file=$(make_temp)
+
+    build_dependency_graph "$_manifest" "$_edges_file" "$_include_dev"
+
+    if [ -s "$_edges_file" ]; then
+        topsort_file "$_edges_file" > "$_sorted_file"
+    fi
+
+    awk '
+        FNR == NR {
+            nodes[++node_count] = $0
+            next
+        }
+
+        {
+            from = $1
+            to = $2
+            if (from != to) {
+                edge_from[++edge_count] = from
+                edge_to[edge_count] = to
+            }
+        }
+
+        END {
+            print "digraph dependencies {"
+            for (i = 1; i <= node_count; i++) {
+                printf "  \"%s\";\n", dot_quote(nodes[i])
+            }
+            for (i = 1; i <= edge_count; i++) {
+                printf "  \"%s\" -> \"%s\";\n", dot_quote(edge_from[i]), dot_quote(edge_to[i])
+            }
+            print "}"
+        }
+
+        function dot_quote(value) {
+            gsub(/\\/, "\\\\", value)
+            gsub(/"/, "\\\"", value)
+            return value
+        }
+    ' "$_sorted_file" "$_edges_file"
+}
+
+_tsort_reports_cycle() {
+    echo "$1" | grep -qiE '^tsort: .*cycle|^tsort: .*loop|input contains a loop'
 }
 
 # apply용 feature 목록 반환 (dev-dependencies 전용 feature 제외)
@@ -238,7 +360,10 @@ check_circular_deps() {
     fi
 
     # tsort 실행하여 순환 검사
-    if ! tsort "$_edges_file" >/dev/null 2>&1; then
+    _result=$(tsort "$_edges_file" 2>&1)
+    _exit_code=$?
+
+    if [ $_exit_code -ne 0 ] || _tsort_reports_cycle "$_result"; then
         return 1
     fi
     return 0

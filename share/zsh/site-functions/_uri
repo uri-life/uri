@@ -333,6 +333,36 @@ _uri_apply() {
     esac
 }
 
+# --- graph ---
+_uri_graph() {
+    local npos=$(_uri_count_pos --format)
+
+    if [[ "$words[CURRENT-1]" == "--format" ]]; then
+        _describe 'format' '(tree:tree\ 형식 dot:Graphviz\ DOT\ 형식)'
+        return
+    fi
+    if [[ "$PREFIX" == --format=* ]]; then
+        compadd -P '--format=' tree dot
+        return
+    fi
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(
+            -h:도움말
+            --help:도움말
+            --include-dev:개발\ 의존성\ 포함
+            --format:출력\ 형식
+        )'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1 --format)
+            _uri_uri_versions "$mver"
+            ;;
+    esac
+}
+
 # --- migrate ---
 _uri_migrate() {
     local npos=$(_uri_count_pos)
@@ -368,6 +398,7 @@ _uri() {
                 expand:feature를\ Mastodon\ 소스에\ 적용
                 collapse:패치\ 파일로\ 추출
                 apply:모든\ feature\ 일괄\ 적용
+                graph:feature\ 의존성\ 그래프\ 출력
                 migrate:브랜치\ 기반에서\ 마이그레이션
             )'
             ;;
@@ -380,6 +411,7 @@ _uri() {
                 expand)   _uri_expand ;;
                 collapse) _uri_collapse ;;
                 apply)    _uri_apply ;;
+                graph)    _uri_graph ;;
                 migrate)  _uri_migrate ;;
             esac
             ;;

@@ -201,6 +201,21 @@ uri list v4.3.2
 uri list v4.3.2 uri1.23
 ```
 
+### 의존성 그래프 (`graph`)
+
+상속된 feature를 포함하여 특정 uri 버전의 feature 의존성 그래프를 출력합니다. 기본 출력은 터미널에서 보기 좋은 tree 형식이며, `--format dot`으로 Graphviz DOT 형식을 출력할 수 있습니다.
+
+```sh
+# 의존성 그래프 출력
+uri graph v4.3.2 uri1.23
+
+# 개발 의존성까지 포함
+uri graph v4.3.2 uri1.23 --include-dev
+
+# Graphviz DOT 형식으로 출력
+uri graph v4.3.2 uri1.23 --format dot
+```
+
 ### 펼치기 (`expand`)
 
 feature와 그 의존성을 Mastodon 소스에 적용합니다. 기본적으로 `dev-dependencies`도 함께 적용하며, `--no-dev`를 사용하면 배포 적용(`apply`)과 같이 일반 의존성만 적용합니다.

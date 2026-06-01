@@ -158,7 +158,7 @@ _uri() {
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help -v --version" -- "$cur"))
         else
-            COMPREPLY=($(compgen -W "init add remove list expand collapse apply migrate" -- "$cur"))
+            COMPREPLY=($(compgen -W "init add remove list expand collapse apply graph migrate" -- "$cur"))
         fi
         return
     fi
@@ -195,6 +195,9 @@ _uri() {
             ;;
         apply)
             _uri_complete_apply "${sub_args[@]}"
+            ;;
+        graph)
+            _uri_complete_graph "${sub_args[@]}"
             ;;
         migrate)
             _uri_complete_migrate "${sub_args[@]}"
@@ -388,6 +391,36 @@ _uri_complete_apply() {
             COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
             ;;
         2) _filedir -d ;;
+    esac
+}
+
+_uri_complete_graph() {
+    local npos
+    npos=$(_uri_count_positional "--format" "$@")
+
+    if [[ "$prev" == "--format" ]]; then
+        COMPREPLY=($(compgen -W "tree dot" -- "$cur"))
+        return
+    fi
+
+    if [[ "$cur" == --format=* ]]; then
+        COMPREPLY=($(compgen -W "tree dot" -- "${cur#--format=}"))
+        COMPREPLY=("${COMPREPLY[@]/#/--format=}")
+        return
+    fi
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --include-dev --format" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "--format" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
     esac
 }
 
