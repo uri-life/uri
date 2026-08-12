@@ -5,9 +5,10 @@
 # collapse 명령 사용법 출력
 collapse_usage() {
     cat <<EOF
-사용법: uri collapse <mastodon_version> <uri_version> <feature> <source>
+사용법: uri collapse <mastodon_version> <uri_version> <feature> <source> [옵션]
 
-Mastodon 소스에서 feature와 그 의존성들을 패치 파일로 추출합니다.
+Mastodon 소스에서 지정한 feature를 패치 파일로 추출합니다.
+기본 모드는 의존 feature를 각자의 선언된 의존성 위에서 재구성해 변경 여부를 검증합니다.
 추출 후 태그 위치로 체크아웃하고 관련 브랜치를 삭제합니다.
 
 인자:
@@ -17,10 +18,12 @@ Mastodon 소스에서 feature와 그 의존성들을 패치 파일로 추출합�
   source             Mastodon Git 리포지토리 경로
 
 옵션:
+  --recursive        지정 feature와 모든 재귀 의존 feature의 패치를 함께 갱신합니다
   -h, --help         이 도움말을 출력합니다
 
 예시:
   uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
+  uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon --recursive
 EOF
 }
 
@@ -32,6 +35,7 @@ cmd_collapse() {
     _uri_ver=""
     _feature=""
     _source=""
+    _recursive=false
 
     # 옵션 파싱
     while [ $# -gt 0 ]; do
@@ -39,6 +43,9 @@ cmd_collapse() {
             -h|--help)
                 collapse_usage
                 exit 0
+                ;;
+            --recursive)
+                _recursive=true
                 ;;
             -*)
                 die "알 수 없는 옵션: $1"
@@ -74,228 +81,253 @@ cmd_collapse() {
     # 워킹 트리 깨끗한지 확인
     git_ensure_clean "$_source"
 
-    _collapse_all_features "$_mastodon_ver" "$_uri_ver" "$_feature" "$_source"
+    _collapse_features "$_mastodon_ver" "$_uri_ver" "$_feature" "$_source" "$_recursive"
 }
 
-# 모든 feature 추출 메인 로직 (내부 함수)
-_collapse_all_features() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
-    _target_feature="$3"
-    _src="$4"
+# 모든 후보를 임시 clone에서 준비한 뒤 검증과 저장을 분리합니다.
+_collapse_features() {
+    _cf_mastodon_ver="$1"
+    _cf_uri_ver="$2"
+    _cf_target="$3"
+    _cf_source="$4"
+    _cf_recursive="$5"
 
-    # uri 버전 디렉터리 확인
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    if [ ! -d "$_uri_dir" ]; then
-        die "uri 버전 디렉터리를 찾을 수 없습니다: $_uri_dir"
+    _cf_uri_dir=$(uri_version_dir "$_cf_mastodon_ver" "$_cf_uri_ver")
+    require_dir "$_cf_uri_dir" "uri 버전 디렉터리를 찾을 수 없습니다: $_cf_uri_dir"
+    _cf_manifest=$(resolve_manifest_path "$_cf_mastodon_ver" "$_cf_uri_ver")
+    require_file "$_cf_manifest" "manifest를 찾을 수 없습니다: $_cf_manifest"
+    _cf_merged=$(resolve_inheritance "$_cf_mastodon_ver" "$_cf_uri_ver")
+
+    if ! yaml_has "$_cf_merged" ".features.$_cf_target"; then
+        die "feature를 찾을 수 없습니다: $_cf_target"
     fi
-
-    # manifest 확인
-    _manifest=$(resolve_manifest_path "$_mastodon_ver" "$_uri_ver")
-    require_file "$_manifest" "manifest를 찾을 수 없습니다: $_manifest"
-
-    # 상속 해석하여 병합된 manifest 생성
-    _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
-
-    # 의존성 포함하여 정렬된 feature 목록 (의존되는 것이 먼저)
-    # manifest에 없는 feature는 타겟만 처리
-    _sorted_features=$(get_feature_with_deps_with_dev "$_merged" "$_target_feature")
-
-    # manifest에 feature가 없으면 타겟 feature만 처리
-    if [ -z "$_sorted_features" ]; then
-        _sorted_features="$_target_feature"
-    fi
+    _cf_features=$(get_feature_with_deps_with_dev "$_cf_merged" "$_cf_target")
+    [ -n "$_cf_features" ] || die "feature 정렬 실패"
 
     info "collapse할 feature 목록 (의존성 순서):"
-    for _f in $_sorted_features; do
-        echo "  - $_f"
+    for _cf_list_feature in $_cf_features; do
+        echo "  - $_cf_list_feature"
     done
 
-    # 역순으로 처리 (가장 마지막 feature부터 collapse)
-    _reversed_features=$(echo "$_sorted_features" | tr ' ' '\n' | reverse_lines | tr '\n' ' ')
+    _made_temp_dir=""
+    make_temp_dir
+    _cf_temp_root="$_made_temp_dir"
+    _cf_clone="${_cf_temp_root}/source"
+    _cf_candidates="${_cf_temp_root}/patches"
+    mkdir -p "$_cf_candidates"
 
-    # 삭제할 브랜치 목록
-    _branches_to_delete=""
+    info "임시 Git clone에서 패치 후보를 재구성합니다..."
+    if ! git clone --quiet --shared --no-checkout "$_cf_source" "$_cf_clone"; then
+        _cleanup_temp_dir "$_cf_temp_root"
+        die "collapse 임시 clone 생성에 실패했습니다."
+    fi
+    git -C "$_cf_clone" config user.name "$URI_GIT_NAME"
+    git -C "$_cf_clone" config user.email "$URI_GIT_EMAIL"
+    git -C "$_cf_clone" config commit.gpgSign false
 
-    # 통계
-    _saved_count=0
-    _skipped_count=0
-
-    for _feature in $_reversed_features; do
-        _collapse_result=0
-        _collapse_single_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src" "$_sorted_features" || _collapse_result=$?
-
-        case $_collapse_result in
-            0) _saved_count=$((_saved_count + 1)) ;;   # 패치 저장됨
-            1) _skipped_count=$((_skipped_count + 1)) ;; # 상속과 동일하여 건너뜀
-            *) ;;  # 에러/건너뜀 - 이미 warn 출력됨
-        esac
-
-        # 브랜치 삭제 목록에 추가
-        _branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_feature")
-        _branches_to_delete="$_branches_to_delete $_branch"
-    done
-
-    # 태그로 체크아웃
-    info "태그 $_mastodon_ver 로 체크아웃합니다..."
-    git_checkout_tag "$_src" "$_mastodon_ver"
-
-    # 브랜치 삭제
-    info "브랜치를 정리합니다..."
-    for _branch in $_branches_to_delete; do
-        if git_branch_exists "$_src" "$_branch"; then
-            git_delete_branch "$_src" "$_branch"
-            info "  삭제됨: $_branch"
-        fi
-    done
-
-    # 결과 출력
-    if [ "$_saved_count" -gt 0 ] || [ "$_skipped_count" -gt 0 ]; then
-        info "결과: ${_saved_count}개 저장됨, ${_skipped_count}개 건너뜀 (상속과 동일)"
+    if ! _prepare_collapse_candidates \
+        "$_cf_mastodon_ver" "$_cf_uri_ver" "$_cf_merged" "$_cf_features" \
+        "$_cf_clone" "$_cf_candidates"; then
+        warn "collapse를 중단합니다. 패치와 원본 브랜치는 변경되지 않았습니다."
+        _cleanup_temp_dir "$_cf_temp_root"
+        return 1
     fi
 
+    if [ "$_cf_recursive" = true ]; then
+        _cf_to_save=$(echo "$_cf_features" | reverse_lines)
+    else
+        if ! _dependency_candidates_match \
+            "$_cf_mastodon_ver" "$_cf_uri_ver" "$_cf_target" \
+            "$_cf_features" "$_cf_candidates"; then
+            _cleanup_temp_dir "$_cf_temp_root"
+            return 1
+        fi
+        _cf_to_save="$_cf_target"
+    fi
+
+    _cf_saved=0
+    _cf_skipped=0
+    for _cf_save_feature in $_cf_to_save; do
+        _cf_result=0
+        _persist_collapse_candidate \
+            "$_cf_mastodon_ver" "$_cf_uri_ver" "$_cf_save_feature" \
+            "$_cf_candidates" || _cf_result=$?
+        case $_cf_result in
+            0) _cf_saved=$((_cf_saved + 1)) ;;
+            1) _cf_skipped=$((_cf_skipped + 1)) ;;
+            *) ;;
+        esac
+    done
+
+    _cleanup_collapsed_branches \
+        "$_cf_mastodon_ver" "$_cf_uri_ver" "$_cf_features" "$_cf_source"
+    _cleanup_temp_dir "$_cf_temp_root"
+
+    info "결과: ${_cf_saved}개 저장됨, ${_cf_skipped}개 건너뜀 (상속과 동일)"
     success "collapse 완료!"
 }
 
-# 단일 feature 추출 (내부 함수)
-# 반환값: 0=패치 저장됨, 1=건너뜀(상속과 동일), 2=에러/건너뜀
-_collapse_single_feature() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
-    _feature="$3"
-    _src="$4"
-    _collapse_features="$5"
+# 각 feature의 고유 커밋만 선언된 의존성 위로 rebase해 후보 패치를 만듭니다.
+_prepare_collapse_candidates() {
+    _pc_mastodon_ver="$1"
+    _pc_uri_ver="$2"
+    _pc_merged="$3"
+    _pc_features="$4"
+    _pc_clone="$5"
+    _pc_candidates="$6"
+    _pc_previous=""
+    _pc_index=0
 
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    _manifest="${_uri_dir}/manifest.yaml"
-
-    # feature 브랜치 존재 확인
-    _feature_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_feature")
-    if ! git_branch_exists "$_src" "$_feature_branch"; then
-        warn "feature 브랜치를 찾을 수 없습니다: $_feature_branch (건너뜁니다)"
-        return 2
+    if ! git -C "$_pc_clone" rev-parse --verify --quiet "refs/tags/${_pc_mastodon_ver}^{}" >/dev/null; then
+        warn "Mastodon 버전 태그를 찾을 수 없습니다: $_pc_mastodon_ver"
+        return 1
     fi
 
-    # 이전 feature 브랜치 찾기 (expand가 만든 실제 브랜치 ancestry 기준)
-    _prev_branch=$(_find_prev_branch_from_feature_branches "$_collapse_features" "$_mastodon_ver" "$_uri_ver" "$_feature" "$_src")
-
-    if [ -z "$_prev_branch" ]; then
-        die "이전 브랜치를 결정할 수 없습니다."
-    fi
-
-    info "[$_feature] 패치 추출 중..."
-    info "  범위: $_prev_branch..$_feature_branch"
-
-    # 커밋 수 확인
-    _commit_count=$(git_commit_count "$_src" "${_prev_branch}..${_feature_branch}")
-    if [ "$_commit_count" -eq 0 ]; then
-        warn "  추출할 커밋이 없습니다."
-        return 2
-    fi
-
-    info "  커밋 수: $_commit_count"
-
-    # 임시 파일로 패치 추출
-    _temp_patch=$(make_temp)
-    git_format_patch "$_src" "${_prev_branch}..${_feature_branch}" "$_temp_patch"
-
-    if [ ! -s "$_temp_patch" ]; then
-        warn "  패치 파일이 비어있습니다."
-        return 2
-    fi
-
-    # 상속 체인에서 부모의 패치 찾기 (현재 버전 제외)
-    _inherited_patch=$(_find_inherited_patch "$_mastodon_ver" "$_uri_ver" "$_feature")
-
-    if [ -n "$_inherited_patch" ] && [ -f "$_inherited_patch" ]; then
-        # 부모 패치가 존재하면 비교
-        if _patches_are_equal "$_temp_patch" "$_inherited_patch"; then
-            info "  상속된 패치와 동일합니다. 건너뜁니다."
-            rm -f "$_temp_patch"
+    for _pc_feature in $_pc_features; do
+        _pc_branch_name=$(uri_branch_name "$_pc_mastodon_ver" "$_pc_uri_ver" "$_pc_feature")
+        _pc_source_ref="refs/remotes/origin/${_pc_branch_name}"
+        if ! git -C "$_pc_clone" rev-parse --verify --quiet "${_pc_source_ref}^{commit}" >/dev/null; then
+            warn "feature 브랜치를 찾을 수 없습니다: $_pc_branch_name"
             return 1
         fi
-        info "  상속된 패치와 다릅니다. 새 패치를 저장합니다."
-    fi
+        if ! git -C "$_pc_clone" merge-base --is-ancestor "$_pc_mastodon_ver" "$_pc_source_ref"; then
+            warn "feature 브랜치가 버전 태그에서 파생되지 않았습니다: $_pc_feature"
+            return 1
+        fi
 
-    # 패치 파일 저장
-    _patch_file="${_uri_dir}/${_feature}.patch"
-    mv "$_temp_patch" "$_patch_file"
+        if [ -z "$_pc_previous" ]; then
+            _pc_original_base="$_pc_mastodon_ver"
+        else
+            _pc_previous_ref="refs/remotes/origin/$(uri_branch_name "$_pc_mastodon_ver" "$_pc_uri_ver" "$_pc_previous")"
+            _pc_original_base=$(git -C "$_pc_clone" merge-base "$_pc_previous_ref" "$_pc_source_ref") || {
+                warn "feature 경계의 merge-base를 결정할 수 없습니다: $_pc_feature"
+                return 1
+            }
+        fi
 
-    # manifest에 feature가 없으면 추가
-    if ! yaml_has "$_manifest" ".features.$_feature"; then
-        _add_feature_to_manifest "$_mastodon_ver" "$_uri_ver" "$_feature"
-    fi
+        if ! git -C "$_pc_clone" checkout --detach --force "$_pc_mastodon_ver" >/dev/null 2>&1; then
+            warn "버전 태그를 임시 clone에서 체크아웃할 수 없습니다."
+            return 1
+        fi
 
-    success "  패치 추출 완료: $_patch_file"
-    return 0
+        _pc_required=$(get_feature_with_deps_with_dev "$_pc_merged" "$_pc_feature")
+        for _pc_dependency in $_pc_required; do
+            [ "$_pc_dependency" = "$_pc_feature" ] && continue
+            _pc_dependency_patch="${_pc_candidates}/${_pc_dependency}.patch"
+            if [ ! -f "$_pc_dependency_patch" ]; then
+                warn "의존 feature 패치 후보를 찾을 수 없습니다: $_pc_dependency"
+                return 1
+            fi
+            if [ -s "$_pc_dependency_patch" ] && ! git_am "$_pc_clone" "$_pc_dependency_patch" >/dev/null; then
+                git_am_abort "$_pc_clone" || true
+                warn "[$_pc_feature] 의존 feature '$_pc_dependency' 적용에 실패했습니다."
+                return 1
+            fi
+        done
+        _pc_dependency_base=$(git -C "$_pc_clone" rev-parse HEAD)
+
+        _pc_candidate="${_pc_candidates}/${_pc_feature}.patch"
+        _pc_commit_count=$(git_commit_count "$_pc_clone" "${_pc_original_base}..${_pc_source_ref}")
+        if [ "$_pc_commit_count" -eq 0 ]; then
+            : > "$_pc_candidate"
+        else
+            _pc_temp_branch="uri-collapse-candidate-${_pc_index}"
+            if ! git -C "$_pc_clone" checkout -B "$_pc_temp_branch" "$_pc_source_ref" >/dev/null 2>&1; then
+                warn "[$_pc_feature] 임시 브랜치 생성에 실패했습니다."
+                return 1
+            fi
+            if ! GIT_COMMITTER_NAME="$URI_GIT_NAME" GIT_COMMITTER_EMAIL="$URI_GIT_EMAIL" \
+                git -C "$_pc_clone" rebase --onto "$_pc_dependency_base" "$_pc_original_base" "$_pc_temp_branch" >/dev/null 2>&1; then
+                git -C "$_pc_clone" rebase --abort >/dev/null 2>&1 || true
+                warn "[$_pc_feature] 선언된 의존성 위로 rebase하지 못했습니다."
+                return 1
+            fi
+            git_format_patch "$_pc_clone" "${_pc_dependency_base}..${_pc_temp_branch}" "$_pc_candidate"
+            [ -s "$_pc_candidate" ] || {
+                warn "[$_pc_feature] 패치 후보가 비어있습니다."
+                return 1
+            }
+        fi
+
+        _pc_previous="$_pc_feature"
+        _pc_index=$((_pc_index + 1))
+    done
 }
 
-# expand가 만든 feature 브랜치들에서 이전 checkpoint 브랜치 찾기 (내부 함수)
-_find_prev_branch_from_feature_branches() {
-    _features="$1"
-    _mastodon_ver="$2"
-    _uri_ver="$3"
-    _target_feature="$4"
-    _src="$5"
+# 비재귀 모드에서 의존 feature 후보가 현재 유효 패치와 동일한지 확인합니다.
+_dependency_candidates_match() {
+    _dm_mastodon_ver="$1"
+    _dm_uri_ver="$2"
+    _dm_target="$3"
+    _dm_features="$4"
+    _dm_candidates="$5"
+    _dm_changed=""
 
-    _target_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_target_feature")
-    _best_branch=""
-    _best_distance=""
-
-    for _candidate_feature in $_features; do
-        if [ "$_candidate_feature" = "$_target_feature" ]; then
-            continue
-        fi
-
-        _candidate_branch=$(uri_branch_name "$_mastodon_ver" "$_uri_ver" "$_candidate_feature")
-        if ! git_branch_exists "$_src" "$_candidate_branch"; then
-            continue
-        fi
-
-        if git_is_ancestor "$_src" "$_candidate_branch" "$_target_branch"; then
-            _distance=$(git_commit_count "$_src" "${_candidate_branch}..${_target_branch}")
-            case "$_distance" in
-                ''|*[!0-9]*) continue ;;
-            esac
-
-            if [ -z "$_best_distance" ] || [ "$_distance" -lt "$_best_distance" ]; then
-                _best_distance="$_distance"
-                _best_branch="$_candidate_branch"
-            fi
+    for _dm_feature in $_dm_features; do
+        [ "$_dm_feature" = "$_dm_target" ] && continue
+        _dm_candidate="${_dm_candidates}/${_dm_feature}.patch"
+        _dm_existing=$(find_patch_file "$_dm_mastodon_ver" "$_dm_uri_ver" "$_dm_feature" 2>/dev/null || true)
+        if [ -z "$_dm_existing" ] || [ ! -f "$_dm_existing" ] || \
+            ! _patches_are_equal "$_dm_candidate" "$_dm_existing"; then
+            _dm_changed="$_dm_changed $_dm_feature"
         fi
     done
 
-    if [ -n "$_best_branch" ]; then
-        echo "$_best_branch"
-        return
+    if [ -n "$_dm_changed" ]; then
+        warn "--recursive 옵션 없이 의존 feature 패치 변경이 감지되었습니다:"
+        for _dm_changed_feature in $_dm_changed; do
+            echo "  - $_dm_changed_feature" >&2
+        done
+        warn "collapse를 중단했습니다. 어떤 패치나 원본 브랜치도 변경되지 않았습니다."
+        warn "의존 feature도 갱신하려면 '--recursive'를 사용하세요."
+        return 1
     fi
-
-    # 이전 feature가 없으면 태그를 베이스로 사용
-    echo "$_mastodon_ver"
 }
 
-# manifest에 feature 추가 (내부 함수)
-_add_feature_to_manifest() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
-    _feature="$3"
+# 반환값: 0=저장, 1=상속과 동일, 2=빈 패치
+_persist_collapse_candidate() {
+    _ps_mastodon_ver="$1"
+    _ps_uri_ver="$2"
+    _ps_feature="$3"
+    _ps_candidates="$4"
+    _ps_candidate="${_ps_candidates}/${_ps_feature}.patch"
 
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    _manifest="${_uri_dir}/manifest.yaml"
-
-    # manifest 파일 존재 확인
-    if [ ! -f "$_manifest" ]; then
-        die "manifest 파일을 찾을 수 없습니다: $_manifest"
+    if [ ! -s "$_ps_candidate" ]; then
+        warn "[$_ps_feature] 추출할 커밋이 없습니다."
+        return 2
     fi
 
-    # feature 추가 (기본값으로)
-    yq eval -i ".features.$_feature = {}" "$_manifest"
-    yq eval -i ".features.$_feature.name = \"$_feature\"" "$_manifest"
-    yq eval -i ".features.$_feature.description = \"\"" "$_manifest"
-    yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "[]"
-    yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "[]"
+    _ps_inherited=$(_find_inherited_patch "$_ps_mastodon_ver" "$_ps_uri_ver" "$_ps_feature")
+    if [ -n "$_ps_inherited" ] && [ -f "$_ps_inherited" ] && \
+        _patches_are_equal "$_ps_candidate" "$_ps_inherited"; then
+        info "[$_ps_feature] 상속된 패치와 동일합니다. 건너뜁니다."
+        return 1
+    fi
 
-    info "  manifest에 feature '$_feature' 추가됨"
+    _ps_patch_file="$(uri_version_dir "$_ps_mastodon_ver" "$_ps_uri_ver")/${_ps_feature}.patch"
+    if ! mv "$_ps_candidate" "$_ps_patch_file"; then
+        warn "[$_ps_feature] 패치 파일을 저장하지 못했습니다: $_ps_patch_file"
+        return 2
+    fi
+    success "[$_ps_feature] 패치 추출 완료: $_ps_patch_file"
+}
+
+_cleanup_collapsed_branches() {
+    _cb_mastodon_ver="$1"
+    _cb_uri_ver="$2"
+    _cb_features="$3"
+    _cb_source="$4"
+
+    git_checkout_tag "$_cb_source" "$_cb_mastodon_ver"
+    info "브랜치를 정리합니다..."
+    _cb_reversed=$(echo "$_cb_features" | reverse_lines)
+    for _cb_feature in $_cb_reversed; do
+        _cb_branch=$(uri_branch_name "$_cb_mastodon_ver" "$_cb_uri_ver" "$_cb_feature")
+        if git_branch_exists "$_cb_source" "$_cb_branch"; then
+            git_delete_branch "$_cb_source" "$_cb_branch"
+            info "  삭제됨: $_cb_branch"
+        fi
+    done
 }
 
 # 상속 체인에서 부모의 패치 파일 찾기 (현재 버전 제외)

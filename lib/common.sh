@@ -137,6 +137,7 @@ require_dir() {
 # 임시 파일 생성 및 정리
 # trap과 함께 사용
 _TEMP_FILES=""
+_TEMP_DIRS=""
 
 make_temp() {
     _tmp=$(mktemp)
@@ -144,9 +145,26 @@ make_temp() {
     echo "$_tmp"
 }
 
+# 임시 디렉터리를 만들고 경로를 _made_temp_dir에 저장합니다.
+# 정리 목록이 현재 셸에 남도록 명령 치환으로 호출하지 않습니다.
+make_temp_dir() {
+    _made_temp_dir=$(mktemp -d)
+    _TEMP_DIRS="$_TEMP_DIRS $_made_temp_dir"
+}
+
+_cleanup_temp_dir() {
+    _cleanup_dir="$1"
+    if [ -n "$_cleanup_dir" ] && [ -d "$_cleanup_dir" ]; then
+        rm -rf "$_cleanup_dir"
+    fi
+}
+
 cleanup_temp() {
     for _f in $_TEMP_FILES; do
         rm -f "$_f" 2>/dev/null
+    done
+    for _d in $_TEMP_DIRS; do
+        _cleanup_temp_dir "$_d"
     done
 }
 

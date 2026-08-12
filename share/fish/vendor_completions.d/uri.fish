@@ -211,6 +211,7 @@ complete -c uri -F -n '__fish_seen_subcommand_from expand; and not __uri_has_fla
 
 # --- collapse ---
 complete -c uri -f -n '__fish_seen_subcommand_from collapse' -s h -l help -d '도움말'
+complete -c uri -f -n '__fish_seen_subcommand_from collapse' -l recursive -d '의존 feature까지 재귀적으로 갱신'
 
 complete -c uri -f -n '__fish_seen_subcommand_from collapse; and test (__uri_pos_count) -eq 0' \
     -a '(__uri_mastodon_versions)' -d 'Mastodon 버전'

@@ -278,7 +278,7 @@ _uri_expand() {
 _uri_collapse() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말)'
+        _describe 'option' '(-h:도움말 --help:도움말 --recursive:의존\ feature까지\ 재귀적으로\ 갱신)'
         return
     fi
     case "$npos" in

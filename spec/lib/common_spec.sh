@@ -164,5 +164,14 @@ Describe 'lib/common.sh'
       When call test -f "$_tmpfile"
       The status should be failure
     End
+
+    It '임시 디렉터리를 생성하고 cleanup_temp로 삭제한다'
+      make_temp_dir
+      _tmpdir="$_made_temp_dir"
+      test -d "$_tmpdir" || return 1
+      cleanup_temp
+      When call test -d "$_tmpdir"
+      The status should be failure
+    End
   End
 End

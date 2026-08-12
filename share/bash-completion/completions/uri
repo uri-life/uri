@@ -343,7 +343,7 @@ _uri_complete_collapse() {
     npos=$(_uri_count_positional "" "$@")
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help --recursive" -- "$cur"))
         return
     fi
 

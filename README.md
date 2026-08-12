@@ -239,11 +239,18 @@ uri expand v4.3.2 uri1.23 custom_emoji /path/to/mastodon --no-dev
 
 ### 접기 (`collapse`)
 
-Mastodon 소스에서 feature와 그 의존성을 패치 파일로 추출합니다. `dev-dependencies`도 함께 고려합니다.
-추출 후 태그 위치로 체크아웃하고 관련 브랜치를 삭제합니다.
+Mastodon 소스에서 지정한 feature를 패치 파일로 추출합니다. `dev-dependencies`를 포함한 의존 feature는 각자가 선언한 의존성만 남긴 기반 위로 임시 rebase하여 검증합니다.
+
+기본 모드는 의존 feature의 후보 패치가 현재 패치와 다르면 어떤 패치도 저장하지 않고 중단합니다. 검증이 성공하면 지정한 feature의 패치만 저장합니다. `--recursive`를 사용하면 재귀 의존 feature의 패치도 함께 갱신합니다.
+
+성공한 두 모드 모두 태그 위치로 체크아웃하고 관련 브랜치를 삭제합니다.
 
 ```sh
+# 지정한 feature만 갱신
 uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
+
+# 의존 feature까지 재귀적으로 갱신
+uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon --recursive
 ```
 
 > **참고**: `collapse`는 `expand`와 달리 `--continue`/`--abort`를 지원하지 않습니다.
@@ -345,10 +352,13 @@ ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/complet
 
 ### `collapse` — 패치 추출
 
-1. 상태 추적용 브랜치를 활용하여 feature별 커밋 범위 식별
-   - `직전_feature_브랜치..해당_feature_브랜치` 범위로 한정
-2. 개발 의존성을 포함한 의존성 역순으로 `.patch` 파일 추출
-3. 추출 완료 후 태그로 체크아웃하고 관련 브랜치를 삭제
+1. 상태 추적용 브랜치와 인접 체크포인트의 merge-base로 feature별 고유 커밋 범위 식별
+2. 임시 clone에서 각 feature를 해당 feature의 재귀 `dependencies`/`dev-dependencies`만 적용된 기반 위로 rebase하여 후보 패치 생성
+3. 기본 모드는 의존 feature 후보가 현재 유효 패치와 모두 같을 때만 대상 feature 패치를 저장
+4. `--recursive`는 모든 재귀 의존 feature 패치까지 저장
+5. 성공 후 태그로 체크아웃하고 관련 브랜치를 삭제
+
+후보 생성·rebase·비재귀 검증이 실패하면 패치, manifest, 원본 HEAD와 feature 브랜치를 전혀 변경하지 않습니다.
 
 > **참고**: `collapse`는 충돌 없이 단방향으로 실행되므로 `--continue`/`--abort`를 지원하지 않습니다.
 
