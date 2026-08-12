@@ -36,6 +36,13 @@ Describe 'lib/commands/add.sh'
       The status should be success
     End
 
+    It '새 manifest.yaml에 빈 excludes 배열이 있다'
+      cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
+      _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml"
+      When call yaml_array_len "$_manifest" ".excludes"
+      The output should eq "0"
+    End
+
     It '--inherits 옵션으로 상속을 설정할 수 있다'
       cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.1" --inherits "uri1.0" >/dev/null 2>&1 || true

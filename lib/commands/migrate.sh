@@ -211,8 +211,9 @@ _init_migrate_patchset() {
         mkdir -p "$_uri_dir"
         # uri 버전 manifest 생성 (yaml.sh 함수 재사용)
         yaml_create_empty "$_manifest"
-        # 주석 및 features 섹션 추가
+        # 주석 및 excludes/features 섹션 추가
         yq -i '. head_comment="uri 버전: '"${_mastodon_ver}+${_uri_ver}"'\n마이그레이션으로 생성됨"' "$_manifest"
+        yaml_set_raw "$_manifest" ".excludes" "[]"
         yaml_set_raw "$_manifest" ".features" "{}"
         info "uri 버전 ${_uri_ver} 를 생성했습니다."
     fi

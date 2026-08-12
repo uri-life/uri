@@ -52,6 +52,16 @@ Describe 'lib/commands/list.sh'
       The output should include "base"
       The output should include "theme"
     End
+
+    It '상속을 해석한 활성 feature만 출력한다'
+      create_test_inherited_patchset "$TEST_TMPDIR"
+      _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_set_raw "$_manifest" ".excludes" '["theme"]'
+      When call cmd_list "v4.3.0" "uri1.1"
+      The output should include "base"
+      The output should include "extra"
+      The output should not include "theme"
+    End
   End
 
   Describe 'list_usage()'

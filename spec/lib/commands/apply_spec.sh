@@ -76,6 +76,16 @@ Describe 'lib/commands/apply.sh'
       When call state_exists "$MASTODON_DIR"
       The status should be failure
     End
+
+    It '제외된 상속 feature를 적용 대상에서 제거한다'
+      cmd_add "v4.3.0" "uri1.1" --inherits "uri1.0" >/dev/null
+      _child_manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_append_exclude "$_child_manifest" "base"
+      When call cmd_apply "v4.3.0" "uri1.1" "$MASTODON_DIR"
+      The status should be success
+      The stderr should include "적용할 feature가 없습니다."
+      The path "${MASTODON_DIR}/applied.txt" should not be exist
+    End
   End
 
   Describe '개발 의존성'

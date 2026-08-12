@@ -154,6 +154,73 @@ yaml_get_inherits() {
     fi
 }
 
+# excludes 배열이 명시되어 있는지 확인
+# 사용법: if yaml_has_excludes "manifest.yaml"; then ...
+yaml_has_excludes() {
+    _yhe_file="$1"
+    _yhe_result=$(yq eval 'has("excludes")' "$_yhe_file")
+    [ "$_yhe_result" = "true" ]
+}
+
+# excludes 스키마 검증
+# 누락은 빈 배열로 허용하고, 명시된 값은 중복 없는 비어 있지 않은 문자열 배열이어야 합니다.
+yaml_validate_excludes() {
+    _yve_file="$1"
+
+    if ! yaml_has_excludes "$_yve_file"; then
+        return 0
+    fi
+
+    _yve_tag=$(yq eval '.excludes | tag' "$_yve_file")
+    if [ "$_yve_tag" != "!!seq" ]; then
+        die "excludes는 문자열 배열이어야 합니다: feature <excludes> ($_yve_file)"
+    fi
+
+    _yve_invalid_count=$(yq eval '[.excludes[] | select(tag != "!!str" or test("^[[:space:]]*$"))] | length' "$_yve_file")
+    if [ "$_yve_invalid_count" -ne 0 ]; then
+        _yve_invalid=$(yq eval '[.excludes[] | select(tag != "!!str" or test("^[[:space:]]*$"))] | .[0] | to_json' "$_yve_file")
+        die "excludes에는 비어 있지 않은 문자열만 사용할 수 있습니다: feature $_yve_invalid ($_yve_file)"
+    fi
+
+    _yve_unique=$(yq eval '(.excludes | length) == (.excludes | unique | length)' "$_yve_file")
+    if [ "$_yve_unique" != "true" ]; then
+        _yve_duplicate=$(yq eval '.excludes | group_by(.) | map(select(length > 1) | .[0]) | .[0] // ""' "$_yve_file")
+        die "excludes에 중복된 feature가 있습니다: $_yve_duplicate ($_yve_file)"
+    fi
+}
+
+# excludes 목록 반환
+# 사용법: yaml_list_excludes "manifest.yaml"
+yaml_list_excludes() {
+    _yle_file="$1"
+    if yaml_has_excludes "$_yle_file"; then
+        yq eval '.excludes[]' "$_yle_file"
+    fi
+}
+
+# excludes에 feature가 있는지 확인
+# 사용법: if yaml_excludes_feature "manifest.yaml" "feature"; then ...
+yaml_excludes_feature() {
+    _yef_file="$1"
+    _yef_feature="$2"
+    _yef_result=$(URI_YAML_VALUE="$_yef_feature" yq eval '(.excludes // []) | any_c(. == strenv(URI_YAML_VALUE))' "$_yef_file")
+    [ "$_yef_result" = "true" ]
+}
+
+# excludes에 feature 추가
+yaml_append_exclude() {
+    _yae_file="$1"
+    _yae_feature="$2"
+    URI_YAML_VALUE="$_yae_feature" yq eval -i '.excludes = ((.excludes // []) + [strenv(URI_YAML_VALUE)])' "$_yae_file"
+}
+
+# excludes에서 feature 제거
+yaml_remove_exclude() {
+    _yre_file="$1"
+    _yre_feature="$2"
+    URI_YAML_VALUE="$_yre_feature" yq eval -i '.excludes = [.excludes[] | select(. != strenv(URI_YAML_VALUE))]' "$_yre_file"
+}
+
 # feature 전체 객체를 JSON으로 반환 (디버깅/처리용)
 # 사용법: yaml_get_features_json "manifest.yaml"
 yaml_get_features_json() {

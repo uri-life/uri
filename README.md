@@ -69,6 +69,10 @@ upstream: https://github.com/mastodon/mastodon.git
 # - 다른 Mastodon 버전: "v4.3.2+uri1.23"
 inherits: "uri1.0"
 
+# 이 버전에서 제외할 상속 feature 목록 (선택)
+excludes:
+  - "legacy_theme"
+
 # feature 목록
 features:
   custom_emoji:
@@ -92,6 +96,10 @@ features:
 
 - `inherits`로 상속된 feature들과 현재 `features`는 하나의 집합으로 취급됩니다.
 - feature 키가 충돌하면 **자식(현재 manifest)이 덮어씁니다.**
+- 각 상속 단계는 현재 `features`를 병합한 뒤 `excludes`에 지정된 상속 feature를 제거합니다.
+- `excludes`가 없는 기존 manifest는 빈 배열을 지정한 것처럼 해석됩니다.
+- `excludes`는 중복 없는 비어 있지 않은 문자열 배열이어야 하며, 현재 manifest가 직접 선언한 feature에는 사용할 수 없습니다.
+- 조상에서 제외된 feature는 더 하위 manifest의 `features`에 다시 선언하여 재도입할 수 있습니다. 패치 파일이 없으면 상속 체인에서 기존 패치를 찾습니다.
 
 #### 의존성
 
@@ -99,6 +107,7 @@ features:
 - `dev-dependencies`는 개발용 feature 키 목록이며, 기본 `expand`와 `collapse`에서만 포함됩니다.
 - `expand --no-dev`와 `apply`는 `dev-dependencies`를 포함하지 않습니다.
 - 상속으로 포함된 feature도 참조할 수 있습니다.
+- 최종 활성 feature가 존재하지 않는 `dependencies` 또는 `dev-dependencies`를 참조하면 관련 feature를 나열하고 오류로 종료합니다.
 - 적용/제거 시 **위상 정렬** 순서를 따릅니다.
 - **순환 의존성**이 발견되면 오류로 종료합니다.
 
@@ -174,6 +183,8 @@ uri add v4.3.2 uri1.23 custom_emoji \
 
 ### 제거 (`remove`)
 
+`remove`는 현재 manifest가 직접 선언한 feature와 그 패치 파일을 삭제합니다. 상속 feature를 비활성화하려면 `exclude`를 사용합니다.
+
 ```sh
 # feature 제거
 uri remove v4.3.2 uri1.23 custom_emoji
@@ -188,6 +199,20 @@ uri remove v4.3.2
 uri remove v4.3.2 uri1.23 custom_emoji -f
 ```
 
+### 상속 feature 제외와 복원 (`exclude`, `include`)
+
+```sh
+# 현재 uri 버전에서 상속 feature 제외
+uri exclude v4.3.2 uri1.23 legacy_theme
+
+# 현재 manifest가 직접 제외한 feature를 다시 포함
+uri include v4.3.2 uri1.23 legacy_theme
+```
+
+`exclude`는 활성화된 상속 feature만 `excludes`에 추가하고 패치 파일은 변경하지 않습니다. 남아 있는 feature의 일반 또는 개발 의존성이 끊기면 manifest를 변경하지 않고 실패합니다.
+
+`include`는 현재 manifest의 `excludes` 항목만 제거합니다. 조상 manifest에서 이미 제외된 feature를 다시 도입하려면 하위 manifest의 `features`에 해당 feature를 직접 선언해야 합니다.
+
 ### 목록 (`list`)
 
 ```sh
@@ -197,7 +222,7 @@ uri list
 # 특정 Mastodon 버전의 uri 패치 목록
 uri list v4.3.2
 
-# 특정 uri 버전의 feature 목록
+# 특정 uri 버전의 최종 활성 feature 목록 (상속 및 excludes 반영)
 uri list v4.3.2 uri1.23
 ```
 
@@ -287,7 +312,7 @@ uri migrate /path/to/old_mastodon v4.3.2/uri1 23 /path/to/new_mastodon
 
 `uri` CLI는 Bash, Zsh, Fish 셸의 자동 완성을 지원합니다.
 
-`versions/` 디렉터리와 `manifest.yaml`을 실시간 조회하여 mastodon 버전, uri 버전, feature 이름을 동적으로 완성합니다. feature 동적 완성에는 `yq`가 필요하며, 미설치 시 커맨드·플래그 완성만 동작합니다.
+`versions/` 디렉터리와 `manifest.yaml`을 실시간 조회하여 mastodon 버전, uri 버전, feature 이름을 동적으로 완성합니다. `exclude`는 활성 상속 feature, `include`는 현재 제외 목록, `remove`는 현재 manifest가 직접 선언한 feature만 제안합니다. feature 동적 완성에는 `yq`가 필요하며, 미설치 시 커맨드·플래그 완성만 동작합니다.
 
 ### Bash
 
@@ -365,7 +390,7 @@ ln -s (realpath share/fish/vendor_completions.d/uri.fish) ~/.config/fish/complet
 ### `apply` — 배포용 전체 적용
 
 - 지정한 uri 버전의 **모든 feature**를 위상 정렬 순서로 적용합니다.
-- 상속된 feature도 포함되며, 하나의 집합으로 취급됩니다.
+- 상속된 feature를 포함하되 `excludes`로 제거된 feature는 적용하지 않습니다.
 - `dev-dependencies`는 포함하지 않습니다.
 - 적용 후 `uri/{ver}/{uri_ver}` 브랜치를 생성합니다.
 - 주로 **배포 목적**으로 사용됩니다.

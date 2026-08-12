@@ -41,6 +41,45 @@ Describe 'lib/commands/migrate.sh'
     End
   End
 
+  Describe '_init_migrate_patchset()'
+    Skip if "yq가 설치되어 있지 않습니다" has_no_yq
+
+    It '새 uri 버전에 빈 excludes 배열을 생성한다'
+      cd "$TEST_TMPDIR"
+      When call _init_migrate_patchset "${TEST_TMPDIR}/repo" "v4.3.0" "uri1.0"
+      The status should be success
+      The output should include "uri 버전 uri1.0 를 생성했습니다."
+      The contents of file "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml" should include "excludes: []"
+    End
+  End
+
+  Describe '_verify_with_apply()'
+    Skip if "yq가 설치되어 있지 않습니다" has_no_yq
+    Skip if "git이 설치되어 있지 않습니다" has_no_git
+
+    setup_verify_env() {
+      cd "$TEST_TMPDIR" || return 1
+      create_test_inherited_patchset "$TEST_TMPDIR"
+      URI_ROOT="$TEST_TMPDIR"
+      export URI_ROOT
+      _child_manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_set_raw "$_child_manifest" ".excludes" '["theme"]'
+      : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/base.patch"
+      : > "${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/extra.patch"
+      create_test_git_repo "${TEST_TMPDIR}/repo"
+      git -C "${TEST_TMPDIR}/repo" tag "v4.3.0"
+    }
+    BeforeEach 'setup_verify_env'
+
+    It '최종 활성 feature만 검증한다'
+      When call _verify_with_apply "${TEST_TMPDIR}/repo" "v4.3.0" "uri1.1"
+      The status should be success
+      The output should include "base"
+      The output should include "extra"
+      The output should not include "theme"
+    End
+  End
+
   Describe '_find_branches_by_prefix() - 통합 테스트'
     Skip if "git이 설치되어 있지 않습니다" has_no_git
     Skip if "통합 테스트가 비활성화되어 있습니다 (URI_INTEGRATION_TEST=1)" integration_tests_disabled

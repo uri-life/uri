@@ -38,34 +38,39 @@ function __uri_uri_versions
     end
 end
 
-# feature 키 목록 (상속 체인을 따라가며 수집, yq 필요)
+# 최종 활성 feature 목록
 function __uri_features
     set -l mver $argv[1]
     set -l uver $argv[2]
-    set -l root (__uri_find_root); or return
-    if not command -q yq
-        return
-    end
-    __uri_resolve_features "$root" "$mver" "$uver" | sort -u
+    command uri list "$mver" "$uver" 2>/dev/null | string match -rv '^info: feature가 없습니다\.$'
 end
 
-# 상속 체인을 재귀적으로 따라가며 feature 키 수집 (내부 함수)
-function __uri_resolve_features
-    set -l root $argv[1]
-    set -l mver $argv[2]
-    set -l uver $argv[3]
+# 현재 manifest가 직접 선언한 feature 목록
+function __uri_local_features
+    set -l mver $argv[1]
+    set -l uver $argv[2]
+    set -l root (__uri_find_root); or return
     set -l manifest "$root/versions/$mver/patches/$uver/manifest.yaml"
-    if not test -f "$manifest"
-        return
+    if command -q yq; and test -f "$manifest"
+        yq eval '(.features // {}) | keys | .[]' "$manifest" 2>/dev/null
     end
-    yq eval '.features | keys | .[]' "$manifest" 2>/dev/null
-    set -l inherits (yq eval '.inherits // ""' "$manifest" 2>/dev/null)
-    if test -n "$inherits"
-        if string match -q '*+*' -- "$inherits"
-            set -l parts (string split '+' -- "$inherits")
-            __uri_resolve_features "$root" $parts[1] $parts[2]
-        else
-            __uri_resolve_features "$root" "$mver" "$inherits"
+end
+
+function __uri_excluded_features
+    set -l mver $argv[1]
+    set -l uver $argv[2]
+    set -l root (__uri_find_root); or return
+    set -l manifest "$root/versions/$mver/patches/$uver/manifest.yaml"
+    if command -q yq; and test -f "$manifest"
+        yq eval '(.excludes // []) | .[]' "$manifest" 2>/dev/null
+    end
+end
+
+function __uri_inherited_features
+    set -l local_features (__uri_local_features $argv[1] $argv[2])
+    for feature in (__uri_features $argv[1] $argv[2])
+        if not contains -- "$feature" $local_features
+            echo "$feature"
         end
     end
 end
@@ -88,7 +93,7 @@ function __uri_positional_args
         if test "$found_subcmd" = false
             # 서브커맨드 찾기
             switch $tok
-                case init add remove list expand collapse apply graph migrate
+                case init add remove exclude include list expand collapse apply graph migrate
                     set found_subcmd true
                 case '-*'
                     continue
@@ -140,6 +145,8 @@ end
 complete -c uri -f -n '__fish_use_subcommand' -a init     -d '패치 세트 초기화'
 complete -c uri -f -n '__fish_use_subcommand' -a add      -d 'uri 버전 또는 feature 추가'
 complete -c uri -f -n '__fish_use_subcommand' -a remove   -d '버전 또는 feature 제거'
+complete -c uri -f -n '__fish_use_subcommand' -a exclude  -d '상속된 feature 제외'
+complete -c uri -f -n '__fish_use_subcommand' -a include  -d '현재 버전에서 제외한 feature 포함'
 complete -c uri -f -n '__fish_use_subcommand' -a list     -d '버전·feature 목록 출력'
 complete -c uri -f -n '__fish_use_subcommand' -a expand   -d 'feature를 Mastodon 소스에 적용'
 complete -c uri -f -n '__fish_use_subcommand' -a collapse -d '패치 파일로 추출'
@@ -179,7 +186,25 @@ complete -c uri -f -n '__fish_seen_subcommand_from remove; and test (__uri_pos_c
 complete -c uri -f -n '__fish_seen_subcommand_from remove; and test (__uri_pos_count) -eq 1' \
     -a '(__uri_uri_versions (__uri_get_pos 1))' -d 'uri 버전'
 complete -c uri -f -n '__fish_seen_subcommand_from remove; and test (__uri_pos_count) -eq 2' \
-    -a '(__uri_features (__uri_get_pos 1) (__uri_get_pos 2))' -d 'feature'
+    -a '(__uri_local_features (__uri_get_pos 1) (__uri_get_pos 2))' -d 'feature'
+
+# --- exclude ---
+complete -c uri -f -n '__fish_seen_subcommand_from exclude' -s h -l help -d '도움말'
+complete -c uri -f -n '__fish_seen_subcommand_from exclude; and test (__uri_pos_count) -eq 0' \
+    -a '(__uri_mastodon_versions)' -d 'Mastodon 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from exclude; and test (__uri_pos_count) -eq 1' \
+    -a '(__uri_uri_versions (__uri_get_pos 1))' -d 'uri 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from exclude; and test (__uri_pos_count) -eq 2' \
+    -a '(__uri_inherited_features (__uri_get_pos 1) (__uri_get_pos 2))' -d '상속 feature'
+
+# --- include ---
+complete -c uri -f -n '__fish_seen_subcommand_from include' -s h -l help -d '도움말'
+complete -c uri -f -n '__fish_seen_subcommand_from include; and test (__uri_pos_count) -eq 0' \
+    -a '(__uri_mastodon_versions)' -d 'Mastodon 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from include; and test (__uri_pos_count) -eq 1' \
+    -a '(__uri_uri_versions (__uri_get_pos 1))' -d 'uri 버전'
+complete -c uri -f -n '__fish_seen_subcommand_from include; and test (__uri_pos_count) -eq 2' \
+    -a '(__uri_excluded_features (__uri_get_pos 1) (__uri_get_pos 2))' -d '제외 feature'
 
 # --- list ---
 complete -c uri -f -n '__fish_seen_subcommand_from list' -s h -l help -d '도움말'

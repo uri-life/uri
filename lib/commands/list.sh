@@ -137,8 +137,9 @@ _list_features() {
         die "manifest.yaml을 찾을 수 없습니다: $_manifest"
     fi
 
-    # features 키 목록 추출
-    _features=$(yaml_list_features "$_manifest")
+    # 상속과 excludes를 해석한 최종 feature 목록 추출
+    _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
+    _features=$(yaml_list_features "$_merged")
 
     if [ -z "$_features" ]; then
         info "feature가 없습니다."

@@ -162,6 +162,71 @@ Describe 'lib/yaml.sh'
     End
   End
 
+  Describe 'excludes 헬퍼 함수'
+    setup() {
+      _file="${TEST_TMPDIR}/excludes.yaml"
+      printf 'excludes:\n  - feature-a\nfeatures: {}\n' > "$_file"
+    }
+    BeforeEach 'setup'
+
+    It 'excludes 목록을 읽는다'
+      When call yaml_list_excludes "$_file"
+      The output should eq "feature-a"
+    End
+
+    It 'excludes에 feature를 추가하고 제거한다'
+      yaml_append_exclude "$_file" "feature-b"
+      yaml_remove_exclude "$_file" "feature-a"
+      When call yaml_list_excludes "$_file"
+      The output should eq "feature-b"
+    End
+
+    It 'excludes에 feature가 있는지 확인한다'
+      When call yaml_excludes_feature "$_file" "feature-a"
+      The status should be success
+    End
+
+    It 'excludes가 없으면 빈 배열처럼 처리한다'
+      _missing="${TEST_TMPDIR}/missing.yaml"
+      echo 'features: {}' > "$_missing"
+      When call yaml_validate_excludes "$_missing"
+      The status should be success
+    End
+
+    It '배열이 아닌 excludes를 거부한다'
+      echo 'excludes: feature-a' > "$_file"
+      When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
+      The status should be failure
+      The stderr should include '문자열 배열'
+      The stderr should include "$_file"
+    End
+
+    It '비문자열 excludes 항목을 거부한다'
+      printf 'excludes:\n  - 1\n' > "$_file"
+      When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
+      The status should be failure
+      The stderr should include '비어 있지 않은 문자열'
+      The stderr should include 'feature 1'
+      The stderr should include "$_file"
+    End
+
+    It '빈 excludes 항목을 거부한다'
+      printf 'excludes:\n  - "   "\n' > "$_file"
+      When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
+      The status should be failure
+      The stderr should include '비어 있지 않은 문자열'
+    End
+
+    It '중복된 excludes 항목을 거부한다'
+      printf 'excludes:\n  - feature-a\n  - feature-a\n' > "$_file"
+      When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
+      The status should be failure
+      The stderr should include '중복'
+      The stderr should include 'feature-a'
+      The stderr should include "$_file"
+    End
+  End
+
   Describe 'feature 헬퍼 함수'
     setup() {
       _file="${TEST_TMPDIR}/feat.yaml"

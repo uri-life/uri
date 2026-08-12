@@ -106,33 +106,95 @@ _get_chain_recursive() {
 # 사용법: resolve_inheritance "v4.3.2" "uri1.23"
 # 출력: 병합된 features가 포함된 임시 manifest 경로
 resolve_inheritance() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
+    resolve_inheritance_with_manifest "$1" "$2" ""
+}
+
+# 현재 manifest 대신 후보 파일을 사용하여 상속을 해석합니다.
+# exclude/include가 원본을 바꾸기 전에 결과를 검증할 때 사용합니다.
+resolve_inheritance_with_manifest() {
+    _ri_mastodon_ver="$1"
+    _ri_uri_ver="$2"
+    _ri_override="${3:-}"
+    _ri_target_manifest=$(resolve_manifest_path "$_ri_mastodon_ver" "$_ri_uri_ver")
 
     # 상속 체인 가져오기 (자식 → 조상 순서)
-    _chain=$(get_inheritance_chain "$_mastodon_ver" "$_uri_ver")
+    _ri_chain=$(get_inheritance_chain "$_ri_mastodon_ver" "$_ri_uri_ver")
 
     # 역순으로 변환 (조상 → 자식 순서로 병합해야 자식이 덮어씀)
-    _reversed=$(echo "$_chain" | reverse_lines)
+    _ri_reversed=$(echo "$_ri_chain" | reverse_lines)
 
     # 병합된 결과를 저장할 임시 파일
-    _merged=$(make_temp)
-    # 빈 features 객체로 초기화 (null 병합 문제 방지)
-    echo "features: {}" > "$_merged"
+    _ri_merged=$(make_temp)
+    echo "features: {}" > "$_ri_merged"
 
-    # 순서대로 병합 (나중 것이 덮어씀)
-    for _manifest in $_reversed; do
-        # features 부분만 추출하여 병합
-        if yaml_has "$_manifest" ".features"; then
-            # 현재 manifest의 features를 병합
-            # null 처리를 위해 // {} 사용
-            yq eval-all '(select(fileIndex == 0).features // {}) * (select(fileIndex == 1).features // {}) | {"features": .}' \
-                "$_merged" "$_manifest" > "${_merged}.tmp"
-            mv "${_merged}.tmp" "$_merged"
+    for _ri_manifest in $_ri_reversed; do
+        _ri_effective_manifest="$_ri_manifest"
+        if [ -n "$_ri_override" ] && [ "$_ri_manifest" = "$_ri_target_manifest" ]; then
+            _ri_effective_manifest="$_ri_override"
         fi
+
+        yaml_validate_excludes "$_ri_effective_manifest"
+        _ri_excludes=$(yaml_list_excludes "$_ri_effective_manifest")
+
+        # excludes는 이 단계에서 상속받은 feature만 지정할 수 있습니다.
+        for _ri_excluded in $_ri_excludes; do
+            if yaml_has "$_ri_effective_manifest" ".features.$_ri_excluded"; then
+                die "같은 manifest에서 feature를 선언하고 제외할 수 없습니다: $_ri_excluded ($_ri_manifest)"
+            fi
+            if ! yaml_has "$_ri_merged" ".features.$_ri_excluded"; then
+                die "상속된 feature를 찾을 수 없습니다: $_ri_excluded ($_ri_manifest)"
+            fi
+        done
+
+        # 현재 features를 병합한 뒤 이 단계의 excludes를 적용합니다.
+        if yaml_has "$_ri_effective_manifest" ".features"; then
+            yq eval-all '(select(fileIndex == 0).features // {}) * (select(fileIndex == 1).features // {}) | {"features": .}' \
+                "$_ri_merged" "$_ri_effective_manifest" > "${_ri_merged}.tmp"
+            mv "${_ri_merged}.tmp" "$_ri_merged"
+        fi
+
+        for _ri_excluded in $_ri_excludes; do
+            yaml_delete "$_ri_merged" ".features.$_ri_excluded"
+        done
     done
 
-    echo "$_merged"
+    _validate_resolved_dependencies "$_ri_merged" "$_ri_target_manifest"
+    echo "$_ri_merged"
+}
+
+# 최종 활성 feature의 일반/개발 의존성이 모두 존재하는지 검증합니다.
+_validate_resolved_dependencies() {
+    _vrd_manifest="$1"
+    _vrd_source_manifest="$2"
+    _vrd_missing=$(make_temp)
+    : > "$_vrd_missing"
+
+    _vrd_features=$(yaml_list_features "$_vrd_manifest")
+    for _vrd_feature in $_vrd_features; do
+        _vrd_dependencies=$(yaml_get_feature_dependencies "$_vrd_manifest" "$_vrd_feature" 2>/dev/null)
+        for _vrd_dependency in $_vrd_dependencies; do
+            if [ -n "$_vrd_dependency" ] && [ "$_vrd_dependency" != "null" ] && \
+                ! yaml_has "$_vrd_manifest" ".features.$_vrd_dependency"; then
+                printf '%s|dependencies|%s\n' "$_vrd_feature" "$_vrd_dependency" >> "$_vrd_missing"
+            fi
+        done
+
+        _vrd_dev_dependencies=$(yaml_get_feature_dev_dependencies "$_vrd_manifest" "$_vrd_feature" 2>/dev/null)
+        for _vrd_dependency in $_vrd_dev_dependencies; do
+            if [ -n "$_vrd_dependency" ] && [ "$_vrd_dependency" != "null" ] && \
+                ! yaml_has "$_vrd_manifest" ".features.$_vrd_dependency"; then
+                printf '%s|dev-dependencies|%s\n' "$_vrd_feature" "$_vrd_dependency" >> "$_vrd_missing"
+            fi
+        done
+    done
+
+    if [ -s "$_vrd_missing" ]; then
+        warn "누락된 feature 의존성이 있습니다: $_vrd_source_manifest"
+        while IFS='|' read -r _vrd_feature _vrd_kind _vrd_dependency; do
+            printf '  - %s.%s -> %s\n' "$_vrd_feature" "$_vrd_kind" "$_vrd_dependency" >&2
+        done < "$_vrd_missing"
+        die "manifest 의존성을 해석할 수 없습니다."
+    fi
 }
 
 # 병합된 feature 목록 반환

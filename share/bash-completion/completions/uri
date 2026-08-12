@@ -1,5 +1,7 @@
 # uri - bash completion
 # shellcheck shell=bash
+# Bash 3.2 호환을 위해 compgen 결과를 배열로 의도적으로 분할합니다.
+# shellcheck disable=SC2207
 
 # URI_ROOT 탐색 (manifest.yaml이 있는 디렉터리)
 _uri_find_root() {
@@ -40,29 +42,38 @@ _uri_uri_versions() {
     fi
 }
 
-# manifest에서 feature 키 목록 (상속 체인을 따라가며 수집, yq 필요)
+# 최종 활성 feature 목록
 _uri_features() {
-    local root mastodon_ver="$1" uri_ver="$2"
-    root=$(_uri_find_root) || return
-    command -v yq &>/dev/null || return
-    _uri_resolve_features "$root" "$mastodon_ver" "$uri_ver" | sort -u
+    command uri list "$1" "$2" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d'
 }
 
-# 상속 체인을 재귀적으로 따라가며 feature 키 수집 (내부 함수)
-_uri_resolve_features() {
-    local root="$1" mver="$2" uver="$3"
+# 현재 manifest가 직접 선언한 feature 목록
+_uri_local_features() {
+    local root mver="$1" uver="$2"
+    root=$(_uri_find_root) || return
     local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
     [[ -f "$manifest" ]] || return
-    yq eval '.features | keys | .[]' "$manifest" 2>/dev/null
-    local inherits
-    inherits=$(yq eval '.inherits // ""' "$manifest" 2>/dev/null)
-    if [[ -n "$inherits" ]]; then
-        if [[ "$inherits" == *+* ]]; then
-            _uri_resolve_features "$root" "${inherits%%+*}" "${inherits#*+}"
-        else
-            _uri_resolve_features "$root" "$mver" "$inherits"
+    command -v yq &>/dev/null || return
+    yq eval '(.features // {}) | keys | .[]' "$manifest" 2>/dev/null
+}
+
+# 현재 manifest가 직접 제외한 feature 목록
+_uri_excluded_features() {
+    local root mver="$1" uver="$2"
+    root=$(_uri_find_root) || return
+    command -v yq &>/dev/null || return
+    yq eval '(.excludes // []) | .[]' "$root/versions/$mver/patches/$uver/manifest.yaml" 2>/dev/null
+}
+
+# 활성 feature 중 현재 manifest가 직접 선언하지 않은 feature 목록
+_uri_inherited_features() {
+    local mver="$1" uver="$2" feature local_features
+    local_features=$(_uri_local_features "$mver" "$uver")
+    for feature in $(_uri_features "$mver" "$uver"); do
+        if ! printf '%s\n' "$local_features" | grep -Fqx -- "$feature"; then
+            echo "$feature"
         fi
-    fi
+    done
 }
 
 # 위치 인자만 카운트 (플래그와 플래그 값 제외)
@@ -158,7 +169,7 @@ _uri() {
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help -v --version" -- "$cur"))
         else
-            COMPREPLY=($(compgen -W "init add remove list expand collapse apply graph migrate" -- "$cur"))
+            COMPREPLY=($(compgen -W "init add remove exclude include list expand collapse apply graph migrate" -- "$cur"))
         fi
         return
     fi
@@ -183,6 +194,12 @@ _uri() {
             ;;
         remove)
             _uri_complete_remove "${sub_args[@]}"
+            ;;
+        exclude)
+            _uri_complete_exclude "${sub_args[@]}"
+            ;;
+        include)
+            _uri_complete_include "${sub_args[@]}"
             ;;
         list)
             _uri_complete_list "${sub_args[@]}"
@@ -258,6 +275,56 @@ _uri_complete_add() {
     esac
 }
 
+_uri_complete_exclude() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "" "$@")
+            uver=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_inherited_features "$mver" "$uver")" -- "$cur"))
+            ;;
+    esac
+}
+
+_uri_complete_include() {
+    local npos
+    npos=$(_uri_count_positional "" "$@")
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return
+    fi
+
+    case "$npos" in
+        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        1)
+            local mver
+            mver=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            ;;
+        2)
+            local mver uver
+            mver=$(_uri_get_positional 1 "" "$@")
+            uver=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_excluded_features "$mver" "$uver")" -- "$cur"))
+            ;;
+    esac
+}
+
 _uri_complete_remove() {
     local npos
     npos=$(_uri_count_positional "" "$@")
@@ -278,7 +345,7 @@ _uri_complete_remove() {
             local mver uver
             mver=$(_uri_get_positional 1 "" "$@")
             uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            COMPREPLY=($(compgen -W "$(_uri_local_features "$mver" "$uver")" -- "$cur"))
             ;;
     esac
 }

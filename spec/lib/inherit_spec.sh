@@ -94,6 +94,148 @@ Describe 'lib/inherit.sh'
         When call yaml_get_feature_dependencies "$_merged" "extra"
         The output should include "base"
       End
+
+      It '자식의 excludes가 상속 feature를 제거한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["theme"]'
+        _merged=$(resolve_inheritance "v4.3.0" "uri1.1")
+        When call yaml_list_features "$_merged"
+        The output should include "base"
+        The output should include "extra"
+        The output should not include "theme"
+      End
+
+      It '복수 상속 feature를 제외한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".features.extra.dependencies" '[]'
+        yaml_set_raw "$_child" ".excludes" '["base", "theme"]'
+        _merged=$(resolve_inheritance "v4.3.0" "uri1.1")
+        When call yaml_list_features "$_merged"
+        The output should eq "extra"
+      End
+
+      It '하위 manifest의 직접 선언이 조상에서 제외한 feature를 재도입한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["theme"]'
+        _grandchild_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.2"
+        mkdir -p "$_grandchild_dir"
+        cat > "${_grandchild_dir}/manifest.yaml" <<'EOF'
+inherits: uri1.1
+features:
+  theme:
+    name: "다시 도입한 테마"
+    description: ""
+    dependencies: []
+EOF
+        _merged=$(resolve_inheritance "v4.3.0" "uri1.2")
+        When call yaml_get_feature_name "$_merged" "theme"
+        The output should eq "다시 도입한 테마"
+      End
+
+      It '조상의 excludes가 더 하위 manifest까지 전파된다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["theme"]'
+        _grandchild_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.2"
+        mkdir -p "$_grandchild_dir"
+        cat > "${_grandchild_dir}/manifest.yaml" <<'EOF'
+inherits: uri1.1
+features: {}
+EOF
+        _merged=$(resolve_inheritance "v4.3.0" "uri1.2")
+        When call yaml_list_features "$_merged"
+        The output should include "base"
+        The output should include "extra"
+        The output should not include "theme"
+      End
+
+      It '다른 Mastodon 버전을 상속해도 excludes를 적용한다'
+        _cross_dir="${TEST_TMPDIR}/versions/v4.4.0/patches/uri2.0"
+        mkdir -p "$_cross_dir"
+        cat > "${_cross_dir}/manifest.yaml" <<'EOF'
+inherits: v4.3.0+uri1.0
+excludes:
+  - theme
+features: {}
+EOF
+        _merged=$(resolve_inheritance "v4.4.0" "uri2.0")
+        When call yaml_list_features "$_merged"
+        The output should include "base"
+        The output should not include "theme"
+      End
+    End
+
+    Describe 'excludes 검증'
+      resolve_child() {
+        (resolve_inheritance "v4.3.0" "uri1.1")
+      }
+
+      It '존재하지 않는 상속 feature를 거부한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["missing"]'
+        When call resolve_child
+        The status should be failure
+        The stderr should include '상속된 feature를 찾을 수 없습니다: missing'
+      End
+
+      It '같은 manifest의 선언과 제외 충돌을 거부한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["extra"]'
+        When call resolve_child
+        The status should be failure
+        The stderr should include '선언하고 제외할 수 없습니다: extra'
+      End
+
+      It '제외 후 일반 의존성이 누락되면 관련 feature를 나열한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["base"]'
+        When call resolve_child
+        The status should be failure
+        The stderr should include 'extra.dependencies -> base'
+      End
+
+      It '제외 후 개발 의존성이 누락되면 관련 feature를 나열한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".features.extra.dependencies" '[]'
+        yaml_set_raw "$_child" '.features.extra."dev-dependencies"' '["theme"]'
+        yaml_set_raw "$_child" ".excludes" '["theme"]'
+        When call resolve_child
+        The status should be failure
+        The stderr should include 'extra.dev-dependencies -> theme'
+      End
+
+      It '의존 feature와 종속 feature를 함께 제외하면 성공한다'
+        _grandchild_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.2"
+        mkdir -p "$_grandchild_dir"
+        cat > "${_grandchild_dir}/manifest.yaml" <<'EOF'
+inherits: uri1.1
+excludes:
+  - base
+  - extra
+features: {}
+EOF
+        When call resolve_inheritance "v4.3.0" "uri1.2"
+        The status should be success
+        The output should be present
+      End
+
+
+      It '더 하위 manifest가 누락된 의존 feature를 재도입하면 성공한다'
+        _child="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+        yaml_set_raw "$_child" ".excludes" '["base"]'
+        _grandchild_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.2"
+        mkdir -p "$_grandchild_dir"
+        cat > "${_grandchild_dir}/manifest.yaml" <<'EOF'
+inherits: uri1.1
+features:
+  base:
+    name: "복구한 기본 패치"
+    description: ""
+    dependencies: []
+EOF
+        When call resolve_inheritance "v4.3.0" "uri1.2"
+        The status should be success
+        The output should be present
+      End
     End
 
     Describe 'get_all_features()'

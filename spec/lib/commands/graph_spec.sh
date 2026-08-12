@@ -62,6 +62,18 @@ Describe 'lib/commands/graph.sh'
       The output should include "extra"
     End
 
+    It '제외된 상속 feature를 tree와 DOT 그래프에서 생략한다'
+      create_test_inherited_patchset "$TEST_TMPDIR"
+      _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_set_raw "$_manifest" ".excludes" '["theme"]'
+      _tree=$(cmd_graph "v4.3.0" "uri1.1")
+      _dot=$(cmd_graph "v4.3.0" "uri1.1" --format dot)
+      When call printf '%s\n%s\n' "$_tree" "$_dot"
+      The output should include "base"
+      The output should include "extra"
+      The output should not include "theme"
+    End
+
     It '지원하지 않는 format이면 실패한다'
       When run script -e -c "
         URI_ROOT='$TEST_TMPDIR'; export URI_ROOT

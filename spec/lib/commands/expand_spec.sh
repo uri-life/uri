@@ -24,6 +24,10 @@ Describe 'lib/commands/expand.sh'
   End
 
   Describe 'cmd_expand()'
+    run_expand_command() {
+      (cmd_expand "$@")
+    }
+
     setup_expand_env() {
       # 패치 세트 생성
       cd "$TEST_TMPDIR" || return 1
@@ -86,6 +90,16 @@ Describe 'lib/commands/expand.sh'
       cmd_expand "v4.3.0" "uri1.0" "base" "$MASTODON_DIR" >/dev/null 2>&1 || true
       When call state_exists "$MASTODON_DIR"
       The status should be failure
+    End
+
+    It '제외된 상속 feature를 적용하지 않는다'
+      cmd_add "v4.3.0" "uri1.1" --inherits "uri1.0" >/dev/null
+      _child_manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_append_exclude "$_child_manifest" "base"
+      When call run_expand_command "v4.3.0" "uri1.1" "base" "$MASTODON_DIR"
+      The status should be failure
+      The stderr should include "feature를 찾을 수 없습니다: base"
+      The path "${MASTODON_DIR}/hello.txt" should not be exist
     End
   End
 

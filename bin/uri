@@ -21,6 +21,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/commands/init.sh"
 . "${LIB_DIR}/commands/add.sh"
 . "${LIB_DIR}/commands/remove.sh"
+. "${LIB_DIR}/commands/exclude.sh"
 . "${LIB_DIR}/commands/list.sh"
 . "${LIB_DIR}/commands/expand.sh"
 . "${LIB_DIR}/commands/collapse.sh"
@@ -45,6 +46,8 @@ uri - Uri Reconstruction Instrument v${VERSION}
   init       패치 세트 초기화
   add        uri 버전 또는 feature 추가
   remove     Mastodon 버전, uri 버전, 또는 feature 제거
+  exclude    상속된 feature 제외
+  include    현재 버전에서 제외한 feature 포함
   list       버전, 패치, feature 목록 출력
   expand     feature를 Mastodon 소스에 적용
   collapse   Mastodon 소스에서 feature를 패치 파일로 추출
@@ -117,6 +120,14 @@ main() {
         remove)
             shift
             cmd_remove "$@"
+            ;;
+        exclude)
+            shift
+            cmd_exclude "$@"
+            ;;
+        include)
+            shift
+            cmd_include "$@"
             ;;
         list)
             shift

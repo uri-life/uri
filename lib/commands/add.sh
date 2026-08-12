@@ -142,9 +142,13 @@ EOF
         echo "inherits: \"$_inherits\"" >> "$_manifest"
     fi
 
-    # features 섹션 추가
-    echo "" >> "$_manifest"
-    echo "features: {}" >> "$_manifest"
+    # excludes/features 섹션 추가
+    {
+        echo ""
+        echo "excludes: []"
+        echo ""
+        echo "features: {}"
+    } >> "$_manifest"
 
     success "uri 버전 추가 완료: $_uri_dir"
 }

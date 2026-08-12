@@ -38,31 +38,53 @@ _uri_uri_versions() {
     fi
 }
 
-# feature 키 목록 (상속 체인을 따라가며 수집)
+# 최종 활성 feature 목록
 _uri_features() {
-    local root mastodon_ver="$1" uri_ver="$2"
-    root=$(_uri_find_root) || return
-    (( $+commands[yq] )) || return
     local -a feats
-    feats=(${(f)"$(_uri_resolve_features "$root" "$mastodon_ver" "$uri_ver" | sort -u)"})
+    feats=(${(f)"$(command uri list "$1" "$2" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d')"})
     compadd -a feats
 }
 
-# 상속 체인을 재귀적으로 따라가며 feature 키 수집 (내부 함수)
-_uri_resolve_features() {
-    local root="$1" mver="$2" uver="$3"
+# 현재 manifest가 직접 선언한 feature 목록
+_uri_local_feature_values() {
+    local root mver="$1" uver="$2"
+    root=$(_uri_find_root) || return
+    (( $+commands[yq] )) || return
     local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
     [[ -f "$manifest" ]] || return
-    yq eval '.features | keys | .[]' "$manifest" 2>/dev/null
-    local inherits
-    inherits=$(yq eval '.inherits // ""' "$manifest" 2>/dev/null)
-    if [[ -n "$inherits" ]]; then
-        if [[ "$inherits" == *+* ]]; then
-            _uri_resolve_features "$root" "${inherits%%+*}" "${inherits#*+}"
-        else
-            _uri_resolve_features "$root" "$mver" "$inherits"
+    yq eval '(.features // {}) | keys | .[]' "$manifest" 2>/dev/null
+}
+
+_uri_local_features() {
+    local -a feats
+    feats=(${(f)"$(_uri_local_feature_values "$1" "$2")"})
+    compadd -a feats
+}
+
+_uri_excluded_features() {
+    local root mver="$1" uver="$2"
+    root=$(_uri_find_root) || return
+    (( $+commands[yq] )) || return
+    local -a feats
+    feats=(${(f)"$(yq eval '(.excludes // []) | .[]' "$root/versions/$mver/patches/$uver/manifest.yaml" 2>/dev/null)"})
+    compadd -a feats
+}
+
+_uri_inherited_features() {
+    local mver="$1" uver="$2" feat
+    local -a active local_feats inherited
+    local -A local_set
+    active=(${(f)"$(command uri list "$mver" "$uver" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d')"})
+    local_feats=(${(f)"$(_uri_local_feature_values "$mver" "$uver")"})
+    for feat in "${local_feats[@]}"; do
+        local_set[$feat]=1
+    done
+    for feat in "${active[@]}"; do
+        if (( ! ${+local_set[$feat]} )); then
+            inherited+=("$feat")
         fi
-    fi
+    done
+    compadd -a inherited
 }
 
 # 이전 위치 인자 값 추출 (인자 파싱 결과에서)
@@ -188,6 +210,48 @@ _uri_add() {
     esac
 }
 
+# --- exclude ---
+_uri_exclude() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(-h:도움말 --help:도움말)'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1)
+            local uver=$(_uri_get_prev_positional 2)
+            _uri_inherited_features "$mver" "$uver"
+            ;;
+    esac
+}
+
+# --- include ---
+_uri_include() {
+    local npos=$(_uri_count_pos)
+    if [[ "$PREFIX" == -* ]]; then
+        _describe 'option' '(-h:도움말 --help:도움말)'
+        return
+    fi
+    case "$npos" in
+        0) _uri_mastodon_versions ;;
+        1)
+            local mver=$(_uri_get_prev_positional 1)
+            _uri_uri_versions "$mver"
+            ;;
+        2)
+            local mver=$(_uri_get_prev_positional 1)
+            local uver=$(_uri_get_prev_positional 2)
+            _uri_excluded_features "$mver" "$uver"
+            ;;
+    esac
+}
+
 # --- remove ---
 _uri_remove() {
     local npos=$(_uri_count_pos)
@@ -209,7 +273,7 @@ _uri_remove() {
         2)
             local mver=$(_uri_get_prev_positional 1)
             local uver=$(_uri_get_prev_positional 2)
-            _uri_features "$mver" "$uver"
+            _uri_local_features "$mver" "$uver"
             ;;
     esac
 }
@@ -394,6 +458,8 @@ _uri() {
                 init:패치\ 세트\ 초기화
                 add:uri\ 버전\ 또는\ feature\ 추가
                 remove:버전\ 또는\ feature\ 제거
+                exclude:상속된\ feature\ 제외
+                include:현재\ 버전에서\ 제외한\ feature\ 포함
                 list:버전·feature\ 목록\ 출력
                 expand:feature를\ Mastodon\ 소스에\ 적용
                 collapse:패치\ 파일로\ 추출
@@ -407,6 +473,8 @@ _uri() {
                 init)     _uri_init ;;
                 add)      _uri_add ;;
                 remove)   _uri_remove ;;
+                exclude)  _uri_exclude ;;
+                include)  _uri_include ;;
                 list)     _uri_list ;;
                 expand)   _uri_expand ;;
                 collapse) _uri_collapse ;;

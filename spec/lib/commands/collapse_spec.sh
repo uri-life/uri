@@ -26,6 +26,10 @@ Describe 'lib/commands/collapse.sh'
   End
 
   Describe 'cmd_collapse()'
+    run_collapse_command() {
+      (cmd_collapse "$@")
+    }
+
     setup_collapse_env() {
       cd "$TEST_TMPDIR" || return 1
       cmd_init "v4.3.0" >/dev/null 2>&1
@@ -79,6 +83,15 @@ Describe 'lib/commands/collapse.sh'
       cmd_collapse "v4.3.0" "uri1.0" "base" "$MASTODON_DIR" >/dev/null 2>&1 || true
       When call git_branch_exists "$MASTODON_DIR" "uri/v4.3.0/uri1.0/base"
       The status should be failure
+    End
+
+    It '제외된 상속 feature를 추출하지 않는다'
+      cmd_add "v4.3.0" "uri1.1" --inherits "uri1.0" >/dev/null
+      _child_manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
+      yaml_append_exclude "$_child_manifest" "base"
+      When call run_collapse_command "v4.3.0" "uri1.1" "base" "$MASTODON_DIR"
+      The status should be failure
+      The stderr should include "feature를 찾을 수 없습니다: base"
     End
   End
 
