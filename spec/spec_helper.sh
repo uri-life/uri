@@ -11,7 +11,6 @@ LIB_DIR="${PROJECT_ROOT}/lib"
 # 외부 의존성 존재 여부 확인 함수
 has_no_yq() { ! command -v yq >/dev/null 2>&1; }
 has_no_git() { ! command -v git >/dev/null 2>&1; }
-has_no_tsort() { ! command -v tsort >/dev/null 2>&1; }
 
 spec_helper_precheck() {
   minimum_version "0.28.0"

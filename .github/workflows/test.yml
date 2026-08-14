@@ -7,6 +7,48 @@ on:
     branches: [main]
 
 jobs:
+  uritsort-smoke:
+    name: Bundled uritsort smoke (${{ matrix.bundle }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            bundle: macos-x86_64
+          - os: macos-15
+            bundle: macos-arm64
+          - os: ubuntu-24.04
+            bundle: linux-x86_64
+          - os: ubuntu-24.04-arm
+            bundle: linux-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Select and run bundled uritsort
+        shell: sh
+        run: |
+          set -eu
+          LIB_DIR="$PWD/lib"
+          . "$LIB_DIR/common.sh"
+          . "$LIB_DIR/topsort.sh"
+
+          _select_uritsort_binary "$(uname -s)" "$(uname -m)"
+          case "$_URITSORT_BINARY" in
+            */${{ matrix.bundle }}/uritsort) ;;
+            *)
+              printf 'unexpected bundled uritsort: %s\n' "$_URITSORT_BINARY" >&2
+              exit 1
+              ;;
+          esac
+
+          _edges_file=$(make_temp)
+          printf 'root beta\nroot alpha\nroot root\n' > "$_edges_file"
+          _actual=$(topsort_file "$_edges_file")
+          _expected=$(printf 'root\nalpha\nbeta\n')
+          test "$_actual" = "$_expected"
+
   unit-test:
     runs-on: ubuntu-latest
     steps:

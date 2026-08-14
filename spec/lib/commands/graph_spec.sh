@@ -3,7 +3,6 @@
 
 Describe 'lib/commands/graph.sh'
   Skip if "yq가 설치되어 있지 않습니다" has_no_yq
-  Skip if "tsort가 설치되어 있지 않습니다" has_no_tsort
 
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/yaml.sh"

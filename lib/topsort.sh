@@ -1,29 +1,127 @@
 #!/bin/sh
 # topsort.sh - 위상 정렬 유틸리티
 # POSIX 호환 셸 스크립트
-# 의존성: tsort (POSIX 표준 유틸리티)
+# 의존성: 플랫폼별 번들 uritsort
 
-# tsort를 사용한 위상 정렬
+# 감지된 플랫폼에 맞는 번들 uritsort 선택
+# 입력: uname -s 값, uname -m 값
+# 출력: _URITSORT_BINARY에 실행 파일 경로 저장
+_select_uritsort_binary() {
+    _uritsort_os="$1"
+    _uritsort_arch="$2"
+
+    case "$_uritsort_os" in
+        Darwin)
+            _uritsort_platform="macos"
+            ;;
+        Linux)
+            _uritsort_platform="linux"
+            ;;
+        *)
+            die "지원하지 않는 uritsort 플랫폼입니다 (감지값: $_uritsort_os/$_uritsort_arch)"
+            ;;
+    esac
+
+    case "$_uritsort_arch" in
+        arm64|aarch64)
+            _uritsort_normalized_arch="arm64"
+            ;;
+        x86_64|amd64)
+            _uritsort_normalized_arch="x86_64"
+            ;;
+        *)
+            die "지원하지 않는 uritsort 플랫폼입니다 (감지값: $_uritsort_os/$_uritsort_arch)"
+            ;;
+    esac
+
+    _uritsort_project_root=$(cd "$LIB_DIR/.." && pwd)
+    _URITSORT_BINARY="${_uritsort_project_root}/libexec/uritsort/${_uritsort_platform}-${_uritsort_normalized_arch}/uritsort"
+
+    if [ ! -f "$_URITSORT_BINARY" ]; then
+        die "번들 uritsort 바이너리가 없습니다: $_URITSORT_BINARY (감지값: $_uritsort_os/$_uritsort_arch)"
+    fi
+    if [ ! -x "$_URITSORT_BINARY" ]; then
+        die "번들 uritsort 바이너리를 실행할 수 없습니다: $_URITSORT_BINARY (감지값: $_uritsort_os/$_uritsort_arch)"
+    fi
+}
+
+# 기존 edge-pair 그래프를 uritsort의 "노드 의존성..." 형식으로 변환
+_prepare_uritsort_input() {
+    _uritsort_edges_file="$1"
+    _uritsort_input_file="$2"
+
+    awk '
+        NF == 0 {
+            next
+        }
+
+        {
+            from = $1
+            to = $2
+
+            if (!(from in seen_node)) {
+                seen_node[from] = 1
+                nodes[++node_count] = from
+            }
+            if (!(to in seen_node)) {
+                seen_node[to] = 1
+                nodes[++node_count] = to
+            }
+
+            edge = to SUBSEP from
+            if (from != to && !(edge in seen_edge)) {
+                seen_edge[edge] = 1
+                dependencies[to] = dependencies[to] " " from
+            }
+        }
+
+        END {
+            for (i = 1; i <= node_count; i++) {
+                node = nodes[i]
+                print node dependencies[node]
+            }
+        }
+    ' "$_uritsort_edges_file" > "$_uritsort_input_file"
+}
+
+_run_uritsort() {
+    _uritsort_edges_file="$1"
+    _uritsort_binary="$2"
+    _uritsort_input_file=$(make_temp)
+
+    _prepare_uritsort_input "$_uritsort_edges_file" "$_uritsort_input_file"
+    "$_uritsort_binary" "$_uritsort_input_file"
+}
+
+_uritsort_reports_cycle() {
+    printf '%s\n' "$1" | grep -Fqi 'cycle detected among nodes:'
+}
+
+_topsort_file_with_binary() {
+    _uritsort_edges_file="$1"
+    _uritsort_binary="$2"
+
+    if _uritsort_result=$(_run_uritsort "$_uritsort_edges_file" "$_uritsort_binary" 2>&1); then
+        if [ -n "$_uritsort_result" ]; then
+            printf '%s\n' "$_uritsort_result"
+        fi
+        return 0
+    fi
+
+    if _uritsort_reports_cycle "$_uritsort_result"; then
+        die "순환 의존성이 발견되었습니다: $_uritsort_result"
+    fi
+    die "위상 정렬 실패: $_uritsort_result"
+}
+
+# 번들 uritsort를 사용한 위상 정렬
 # 입력: 간선 쌍이 담긴 파일 (각 줄: "선행_노드 후행_노드")
 # 출력: 선행 노드가 먼저 나오는 정렬된 노드 목록
 # 사용법: topsort_file "/path/to/edges.txt"
 topsort_file() {
     _edges_file="$1"
-
-    # tsort 실행 및 순환 감지
-    _result=$(tsort "$_edges_file" 2>&1)
-    _exit_code=$?
-
-    if [ $_exit_code -ne 0 ] || _tsort_reports_cycle "$_result"; then
-        # tsort가 순환을 감지하면 에러 메시지 출력
-        if _tsort_reports_cycle "$_result"; then
-            die "순환 의존성이 발견되었습니다: $_result"
-        else
-            die "위상 정렬 실패: $_result"
-        fi
-    fi
-
-    echo "$_result"
+    _select_uritsort_binary "$(uname -s)" "$(uname -m)"
+    _topsort_file_with_binary "$_edges_file" "$_URITSORT_BINARY"
 }
 
 # manifest에서 feature 의존성 그래프 생성
@@ -216,10 +314,6 @@ render_dependency_graph_dot() {
     ' "$_sorted_file" "$_edges_file"
 }
 
-_tsort_reports_cycle() {
-    echo "$1" | grep -qiE '^tsort: .*cycle|^tsort: .*loop|input contains a loop'
-}
-
 # apply용 feature 목록 반환 (dev-dependencies 전용 feature 제외)
 # 사용법: get_sorted_apply_features "manifest.yaml"
 get_sorted_apply_features() {
@@ -359,12 +453,14 @@ check_circular_deps() {
         return 0
     fi
 
-    # tsort 실행하여 순환 검사
-    _result=$(tsort "$_edges_file" 2>&1)
-    _exit_code=$?
+    _select_uritsort_binary "$(uname -s)" "$(uname -m)"
 
-    if [ $_exit_code -ne 0 ] || _tsort_reports_cycle "$_result"; then
+    if _uritsort_result=$(_run_uritsort "$_edges_file" "$_URITSORT_BINARY" 2>&1); then
+        return 0
+    fi
+
+    if _uritsort_reports_cycle "$_uritsort_result"; then
         return 1
     fi
-    return 0
+    die "위상 정렬 실패: $_uritsort_result"
 }

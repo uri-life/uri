@@ -109,7 +109,20 @@ features:
 - 상속으로 포함된 feature도 참조할 수 있습니다.
 - 최종 활성 feature가 존재하지 않는 `dependencies` 또는 `dev-dependencies`를 참조하면 관련 feature를 나열하고 오류로 종료합니다.
 - 적용/제거 시 **위상 정렬** 순서를 따릅니다.
+- 위상 정렬에는 시스템 `tsort`가 아니라 저장소의 `libexec/uritsort/`에 포함된 플랫폼별 `uritsort` 실행기를 사용합니다.
+- 동시에 적용할 수 있는 feature가 여러 개이면 feature 키의 사전식 순서로 선택하므로, 입력 순서와 무관하게 같은 결과를 냅니다.
 - **순환 의존성**이 발견되면 오류로 종료합니다.
+
+지원하는 실행 환경은 다음 네 조합입니다.
+
+| 운영체제 | 아키텍처 | 번들 경로 |
+|----------|----------|-----------|
+| macOS | ARM64 (`arm64`) | `libexec/uritsort/macos-arm64/uritsort` |
+| macOS | x86-64 (`x86_64`) | `libexec/uritsort/macos-x86_64/uritsort` |
+| Linux | ARM64 (`arm64`, `aarch64`) | `libexec/uritsort/linux-arm64/uritsort` |
+| Linux | x86-64 (`x86_64`, `amd64`) | `libexec/uritsort/linux-x86_64/uritsort` |
+
+지원하지 않는 운영체제·아키텍처 조합이거나 해당 번들 파일이 없거나 실행할 수 없으면 감지된 환경을 표시하고 실패합니다. `PATH`의 `uritsort`나 시스템 `tsort`로 대체하지 않습니다.
 
 #### `.patch` 파일 포맷
 
