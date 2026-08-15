@@ -9,16 +9,16 @@ Describe 'lib/git.sh'
     Describe 'feature_branch_name()'
       It 'generates a feature branch name with the configured prefix'
         URI_BRANCH_PREFIX="custom"
-        When call feature_branch_name "v1.2.3+build" "stack-a" "custom_emoji"
-        The output should eq "custom/v1.2.3+build/stack-a/custom_emoji"
+        When call feature_branch_name "v1.2.3" "patch1.0" "feature-a"
+        The output should eq "custom/v1.2.3/patch1.0/feature-a"
       End
     End
 
     Describe 'patchset_branch_name()'
       It 'generates a patchset branch name with the default prefix'
         unset URI_BRANCH_PREFIX
-        When call patchset_branch_name "v1.2.3+build" "stack-a"
-        The output should eq "uri/v1.2.3+build/stack-a"
+        When call patchset_branch_name "v1.2.3" "patch1.0"
+        The output should eq "uri/v1.2.3/patch1.0"
       End
     End
 

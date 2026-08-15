@@ -10,18 +10,18 @@ Usage: uri remove <upstream_version> [patchset_version] [feature] [options]
 Remove an upstream version, patchset version, or feature.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
-  feature            Feature name (for example, custom_emoji)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
+  feature            Feature name (for example, feature-a)
 
 Options:
   -h, --help         Print this help text
   -f, --force        Force deletion without confirmation
 
 Examples:
-  uri remove v1.2.3+build                          # Remove an entire upstream version
-  uri remove v1.2.3+build stack-a                  # Remove a patchset version
-  uri remove v1.2.3+build stack-a custom_emoji     # Remove a feature
+  uri remove v1.2.3                                # Remove an entire upstream version
+  uri remove v1.2.3 patch1.0                       # Remove a patchset version
+  uri remove v1.2.3 patch1.0 feature-a             # Remove a feature
 EOF
 }
 

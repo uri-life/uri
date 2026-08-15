@@ -46,9 +46,9 @@ Describe 'lib/commands/list.sh'
     End
 
     It 'prints a patchset without a uri prefix'
-      cmd_add "v4.3.0" "stack-a" >/dev/null
+      cmd_add "v4.3.0" "patch1.0" >/dev/null
       When call cmd_list "v4.3.0"
-      The output should include "stack-a"
+      The output should include "patch1.0"
     End
 
     It 'does not print an invalid patchset directory'

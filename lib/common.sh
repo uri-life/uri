@@ -115,7 +115,7 @@ upstream_version_dir() {
 }
 
 # Return the patchset version directory path
-# Usage: patchset_version_dir "v1.2.3" "stack-a"
+# Usage: patchset_version_dir "v1.2.3" "patch1.0"
 patchset_version_dir() {
     echo "${URI_ROOT}/versions/$1/patches/$2"
 }

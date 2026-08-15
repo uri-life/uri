@@ -61,15 +61,15 @@ Detailed help for each command:
   uri <command> --help
 
 Examples:
-  uri init --upstream https://example.com/project.git v1.2.3+build
-  uri add v1.2.3+build stack-a                      # Add a patchset version
-  uri add v1.2.3+build stack-a feature-a            # Add a feature
+  uri init --upstream https://example.com/project.git v1.2.3
+  uri add v1.2.3 patch1.0                           # Add a patchset version
+  uri add v1.2.3 patch1.0 feature-a                 # Add a feature
   uri list                                          # List upstream versions
-  uri list v1.2.3+build                             # List patchset versions
-  uri expand v1.2.3+build stack-a feature-a         # Apply to an automatic clone
-  uri collapse v1.2.3+build stack-a feature-a /path # Extract a feature
-  uri apply v1.2.3+build stack-a                    # Apply all features to an automatic clone
-  uri graph v1.2.3+build stack-a                    # Print the dependency graph
+  uri list v1.2.3                                   # List patchset versions
+  uri expand v1.2.3 patch1.0 feature-a              # Apply to an automatic clone
+  uri collapse v1.2.3 patch1.0 feature-a /path/to/project
+  uri apply v1.2.3 patch1.0                         # Apply all features to an automatic clone
+  uri graph v1.2.3 patch1.0                         # Print the dependency graph
 EOF
 }
 

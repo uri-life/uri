@@ -10,9 +10,9 @@ Usage: uri add <upstream_version> <patchset_version> [feature] [options]
 Add a patchset version or feature.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
-  feature            Feature name (for example, custom_emoji)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
+  feature            Feature name (for example, feature-a)
 
 Options:
   -h, --help             Print this help text
@@ -24,11 +24,11 @@ Options:
   --inherits-upstream VERSION Upstream version to inherit
 
 Examples:
-  uri add v1.2.3+build stack-a                     # Add a patchset version
-  uri add v1.2.3+build stack-a custom_emoji        # Add a feature
-  uri add v1.2.3+build stack-a custom_emoji \\
-      --name "Custom Emoji" \\
-      --description "Extended emoji support" \\
+  uri add v1.2.3 patch1.0                          # Add a patchset version
+  uri add v1.2.3 patch1.0 feature-a                # Add a feature
+  uri add v1.2.3 patch1.0 feature-a \\
+      --name "Feature A" \\
+      --description "First change" \\
       --dependencies "base"                        # Include options
 EOF
 }

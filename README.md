@@ -49,14 +49,14 @@ The remaining examples assume that `bin/uri` is available on `PATH` as
 ## Quick start
 
 ```sh
-uri init --upstream https://example.com/project.git v1.2.3+build
-uri add v1.2.3+build stack-a
-uri add v1.2.3+build stack-a feature-a \
+uri init --upstream https://example.com/project.git v1.2.3
+uri add v1.2.3 patch1.0
+uri add v1.2.3 patch1.0 feature-a \
   --name "Feature A" \
   --description "First change"
 
 # Edit feature-a.patch, then apply the complete patchset to a new full clone
-uri apply v1.2.3+build stack-a
+uri apply v1.2.3 patch1.0
 ```
 
 When the destination is omitted from `apply` or `expand`, `uri` creates and
@@ -68,9 +68,9 @@ later be used with `--continue`, `--abort`, or `collapse`.
 
 | Term | Meaning | Example |
 |------|---------|---------|
-| upstream version | The upstream tag or version to which patches apply | `v1.2.3+build` |
-| patchset version | A collection of patches for one upstream version | `stack-a` |
-| feature | One independently managed change or capability | `custom-theme` |
+| upstream version | The upstream tag or version to which patches apply | `v1.2.3` |
+| patchset version | A collection of patches for one upstream version | `patch1.0` |
+| feature | One independently managed change or capability | `feature-a` |
 
 ## Repository layout
 
@@ -78,12 +78,12 @@ later be used with `--continue`, `--abort`, or `collapse`.
 patches/
 ├── manifest.yaml
 └── versions/
-    └── v1.2.3+build/
+    └── v1.2.3/
         └── patches/
-            ├── stack-a/
+            ├── patch1.0/
             │   ├── manifest.yaml
             │   └── feature-a.patch
-            └── next-stack/
+            └── patch1.1/
                 └── manifest.yaml
 ```
 
@@ -140,8 +140,8 @@ New manifests store both axes of an inherited patchset:
 
 ```yaml
 inherits:
-  upstream-version: v1.2.3+build
-  patchset-version: stack-a
+  upstream-version: v1.2.3
+  patchset-version: patch1.0
 
 excludes: []
 
@@ -158,10 +158,10 @@ Both values are recorded even when the parent patchset uses the same upstream
 version:
 
 ```sh
-uri add v1.2.3+build next-stack --inherits stack-a
-uri add v1.2.4 next-stack \
-  --inherits stack-a \
-  --inherits-upstream v1.2.3+build
+uri add v1.2.3 patch1.1 --inherits patch1.0
+uri add v1.2.4 patch1.1 \
+  --inherits patch1.0 \
+  --inherits-upstream v1.2.3
 ```
 
 Legacy string values such as `inherits: uri3.1` and
@@ -189,11 +189,11 @@ uri init [upstream_version] # Add a version to an existing root
 `--upstream` is required when creating a new root.
 
 ```sh
-uri add v1.2.3+build stack-a
-uri add v1.2.3+build stack-a feature-a --dependencies base
-uri remove v1.2.3+build stack-a feature-a
-uri exclude v1.2.3+build next-stack legacy-feature
-uri include v1.2.3+build next-stack legacy-feature
+uri add v1.2.3 patch1.0
+uri add v1.2.3 patch1.0 feature-a --dependencies base
+uri remove v1.2.3 patch1.0 feature-a
+uri exclude v1.2.3 patch1.1 legacy-feature
+uri include v1.2.3 patch1.1 legacy-feature
 ```
 
 `remove` deletes a directly declared feature and its patch file. Use
@@ -204,10 +204,10 @@ prompt.
 
 ```sh
 uri list                                  # List upstream versions
-uri list v1.2.3+build                     # List patchset directories
-uri list v1.2.3+build stack-a             # List final active features
-uri graph v1.2.3+build stack-a
-uri graph v1.2.3+build stack-a --include-dev --format dot
+uri list v1.2.3                           # List patchset directories
+uri list v1.2.3 patch1.0                  # List final active features
+uri graph v1.2.3 patch1.0
+uri graph v1.2.3 patch1.0 --include-dev --format dot
 ```
 
 Patchset names do not depend on the `uri` prefix. `list` reports every valid
@@ -217,11 +217,11 @@ directory containing `patches/<patchset>/manifest.yaml`.
 
 ```sh
 # Omit destination to create and preserve a full clone
-uri expand v1.2.3+build stack-a feature-a
+uri expand v1.2.3 patch1.0 feature-a
 
 # Use an existing repository
-uri expand v1.2.3+build stack-a feature-a /path/to/project
-uri expand v1.2.3+build stack-a feature-a /path/to/project --no-dev
+uri expand v1.2.3 patch1.0 feature-a /path/to/project
+uri expand v1.2.3 patch1.0 feature-a /path/to/project --no-dev
 
 # A destination is required for conflict recovery
 uri expand /path/to/project --continue
@@ -236,8 +236,8 @@ when `--no-dev` is supplied.
 ### Collapse a feature
 
 ```sh
-uri collapse v1.2.3+build stack-a feature-a /path/to/project
-uri collapse v1.2.3+build stack-a feature-a /path/to/project --recursive
+uri collapse v1.2.3 patch1.0 feature-a /path/to/project
+uri collapse v1.2.3 patch1.0 feature-a /path/to/project --recursive
 ```
 
 `collapse` extracts patches from the requested feature branch in the specified
@@ -251,8 +251,8 @@ original branches are changed.
 ### Apply a complete patchset
 
 ```sh
-uri apply v1.2.3+build stack-a
-uri apply v1.2.3+build stack-a /path/to/project
+uri apply v1.2.3 patch1.0
+uri apply v1.2.3 patch1.0 /path/to/project
 uri apply /path/to/project --continue
 uri apply /path/to/project --abort
 ```

@@ -10,8 +10,8 @@ Usage: uri graph <upstream_version> <patchset_version> [options]
 Print the feature dependency graph for a patchset version.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
 
 Options:
   -h, --help         Print this help text
@@ -19,9 +19,9 @@ Options:
   --format FORMAT    Output format: tree or dot (default: tree)
 
 Examples:
-  uri graph v1.2.3+build stack-a
-  uri graph v1.2.3+build stack-a --include-dev
-  uri graph v1.2.3+build stack-a --format dot
+  uri graph v1.2.3 patch1.0
+  uri graph v1.2.3 patch1.0 --include-dev
+  uri graph v1.2.3 patch1.0 --format dot
 EOF
 }
 

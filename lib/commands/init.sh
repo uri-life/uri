@@ -9,7 +9,7 @@ Usage: uri init --upstream URL [options] [upstream_version]
 Initialize a Git patch set. --upstream is required for a new root.
 
 Arguments:
-  upstream_version       Upstream tag or version (for example, v1.2.3+build)
+  upstream_version       Upstream tag or version (for example, v1.2.3)
                          When omitted, create only the root manifest
 
 Options:
@@ -24,7 +24,7 @@ When provided again, they must exactly match the stored values.
 
 Examples:
   uri init --upstream https://example.com/project.git
-  uri init --upstream https://example.com/project.git v1.2.3+build
+  uri init --upstream https://example.com/project.git v1.2.3
   uri init v1.2.4
 EOF
 }

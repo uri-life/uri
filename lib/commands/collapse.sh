@@ -12,9 +12,9 @@ By default, reconstruct each dependent feature on its declared dependencies and 
 After extraction, check out the tag and delete the related branches.
 
 Arguments:
-  upstream_version   Upstream tag or version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
-  feature            Feature name (for example, custom_emoji)
+  upstream_version   Upstream tag or version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
+  feature            Feature name (for example, feature-a)
   source             Upstream Git repository path
 
 Options:
@@ -22,8 +22,8 @@ Options:
   -h, --help         Print this help text
 
 Examples:
-  uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon
-  uri collapse v4.3.2 uri1.23 custom_emoji /path/to/mastodon --recursive
+  uri collapse v1.2.3 patch1.0 feature-a /path/to/project
+  uri collapse v1.2.3 patch1.0 feature-a /path/to/project --recursive
 EOF
 }
 

@@ -12,9 +12,9 @@ Usage: uri expand <upstream_version> <patchset_version> <feature> [destination] 
 Apply a feature to the upstream source.
 
 Arguments:
-  upstream_version   Upstream tag or version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
-  feature            Feature name (for example, custom_emoji)
+  upstream_version   Upstream tag or version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
+  feature            Feature name (for example, feature-a)
   destination        Upstream Git repository path. When omitted, create a persistent full clone
 
 Options:
@@ -25,7 +25,7 @@ Options:
   --no-dev           Apply without development dependencies
 
 Examples:
-  uri expand v1.2.3+build stack-a custom_emoji
+  uri expand v1.2.3 patch1.0 feature-a
   uri expand /path/to/project --continue
   uri expand /path/to/project --abort
 EOF

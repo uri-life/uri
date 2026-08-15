@@ -171,10 +171,10 @@ Describe 'lib/state.sh'
       URI_BRANCH_PREFIX="custom"
       URI_GIT_NAME="State User"
       URI_GIT_EMAIL="state@example.com"
-      state_save_expand "$REPO" "v1.2.3+build" "stack-a" "base" "0"
+      state_save_expand "$REPO" "v1.2.3" "patch1.0" "base" "0"
       _state_path=$(state_file "$REPO")
       When call state_get_patchset_version "$REPO"
-      The output should eq "stack-a"
+      The output should eq "patch1.0"
       The contents of file "$_state_path" should include "branch_prefix=custom"
     End
 

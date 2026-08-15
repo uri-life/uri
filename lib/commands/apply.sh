@@ -12,8 +12,8 @@ Usage: uri apply <upstream_version> <patchset_version> [destination] [options]
 Apply all features in a patchset version.
 
 Arguments:
-  upstream_version   Upstream tag or version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
+  upstream_version   Upstream tag or version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
   destination        Upstream Git repository path. When omitted, create a persistent full clone
 
 Options:
@@ -26,7 +26,7 @@ Description:
   This is primarily intended for deployment.
 
 Examples:
-  uri apply v1.2.3+build stack-a
+  uri apply v1.2.3 patch1.0
   uri apply /path/to/project --continue
   uri apply /path/to/project --abort
 EOF

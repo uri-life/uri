@@ -53,11 +53,11 @@ Describe 'lib/commands/add.sh'
 
     It 'records a patchset containing + in structured form with --inherits-upstream'
       cmd_init "v4.4.0" >/dev/null
-      cmd_add "v4.3.0" "stack+base" >/dev/null
-      cmd_add "v4.4.0" "next-stack" --inherits "stack+base" --inherits-upstream "v4.3.0" >/dev/null
-      _manifest="${TEST_TMPDIR}/versions/v4.4.0/patches/next-stack/manifest.yaml"
+      cmd_add "v4.3.0" "patch+base" >/dev/null
+      cmd_add "v4.4.0" "patch1.1" --inherits "patch+base" --inherits-upstream "v4.3.0" >/dev/null
+      _manifest="${TEST_TMPDIR}/versions/v4.4.0/patches/patch1.1/manifest.yaml"
       When call yq eval '.inherits."upstream-version" + ":" + .inherits."patchset-version"' "$_manifest"
-      The output should eq "v4.3.0:stack+base"
+      The output should eq "v4.3.0:patch+base"
     End
 
     It 'calls die for an existing patchset version'

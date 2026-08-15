@@ -10,16 +10,16 @@ Usage: uri list [upstream_version] [patchset_version] [options]
 List versions, patches, or features.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
 
 Options:
   -h, --help         Print this help text
 
 Examples:
   uri list                       # List all upstream versions
-  uri list v1.2.3+build          # List patchset versions
-  uri list v1.2.3+build stack-a  # List features
+  uri list v1.2.3                # List patchset versions
+  uri list v1.2.3 patch1.0       # List features
 EOF
 }
 

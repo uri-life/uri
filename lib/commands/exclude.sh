@@ -9,8 +9,8 @@ Usage: uri exclude <upstream_version> <patchset_version> <feature>
 Exclude a feature inherited by the current patchset version.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
   feature            Name of the inherited feature to exclude
 
 Options:
@@ -25,8 +25,8 @@ Usage: uri include <upstream_version> <patchset_version> <feature>
 Include a feature directly excluded by the current patchset version.
 
 Arguments:
-  upstream_version   Upstream version (for example, v1.2.3+build)
-  patchset_version   Patchset version (for example, stack-a)
+  upstream_version   Upstream version (for example, v1.2.3)
+  patchset_version   Patchset version (for example, patch1.0)
   feature            Name of the feature to include again
 
 Options:

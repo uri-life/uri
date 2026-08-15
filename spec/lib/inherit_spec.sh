@@ -67,19 +67,19 @@ Describe 'lib/inherit.sh'
 
     Describe 'get_inheritance_chain()'
       It 'unambiguously reads versions containing + from structured inheritance'
-        _parent_dir="${TEST_TMPDIR}/versions/v1.2.3+build/patches/stack+base"
-        _child_dir="${TEST_TMPDIR}/versions/v1.2.4/patches/next-stack"
+        _parent_dir="${TEST_TMPDIR}/versions/release+meta/patches/patch+base"
+        _child_dir="${TEST_TMPDIR}/versions/v1.2.4/patches/patch1.1"
         mkdir -p "$_parent_dir" "$_child_dir"
         printf '%s\n' 'features: {base: {name: Base, description: "", dependencies: []}}' > "$_parent_dir/manifest.yaml"
         cat > "$_child_dir/manifest.yaml" <<'EOF'
 inherits:
-  upstream-version: v1.2.3+build
-  patchset-version: stack+base
+  upstream-version: release+meta
+  patchset-version: patch+base
 features: {}
 EOF
-        When call get_inheritance_chain "v1.2.4" "next-stack"
-        The line 1 should include "v1.2.4/patches/next-stack"
-        The line 2 should include "v1.2.3+build/patches/stack+base"
+        When call get_inheritance_chain "v1.2.4" "patch1.1"
+        The line 1 should include "v1.2.4/patches/patch1.1"
+        The line 2 should include "release+meta/patches/patch+base"
       End
 
       It 'returns manifest paths from child to ancestor'

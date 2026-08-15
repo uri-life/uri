@@ -49,16 +49,16 @@ Describe 'lib/common.sh'
   Describe 'upstream_version_dir()'
     It 'returns a version directory path based on URI_ROOT'
       URI_ROOT="/tmp/test"
-      When call upstream_version_dir "v1.2.3+build"
-      The output should eq "/tmp/test/versions/v1.2.3+build"
+      When call upstream_version_dir "v1.2.3"
+      The output should eq "/tmp/test/versions/v1.2.3"
     End
   End
 
   Describe 'patchset_version_dir()'
     It 'returns a patchset version directory path based on URI_ROOT'
       URI_ROOT="/tmp/test"
-      When call patchset_version_dir "v1.2.3+build" "stack-a"
-      The output should eq "/tmp/test/versions/v1.2.3+build/patches/stack-a"
+      When call patchset_version_dir "v1.2.3" "patch1.0"
+      The output should eq "/tmp/test/versions/v1.2.3/patches/patch1.0"
     End
   End
 
@@ -68,7 +68,7 @@ Describe 'lib/common.sh'
     }
 
     It 'allows a safe identifier containing +._-'
-      When call validate_identifier_safely "version" "v1.2.3+build-1"
+      When call validate_identifier_safely "version" "release_1.2+meta-1"
       The status should be success
     End
 
