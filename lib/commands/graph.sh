@@ -1,34 +1,34 @@
 #!/bin/sh
-# graph.sh - graph 명령 구현
-# POSIX 호환 셸 스크립트
+# graph.sh - graph command implementation
+# POSIX-compatible shell script
 
-# graph 명령 사용법 출력
+# Print graph command usage
 graph_usage() {
     cat <<EOF
-사용법: uri graph <mastodon_version> <uri_version> [옵션]
+Usage: uri graph <upstream_version> <patchset_version> [options]
 
-uri 버전에 포함된 feature 의존성 그래프를 출력합니다.
+Print the feature dependency graph for a patchset version.
 
-인자:
-  mastodon_version   Mastodon 버전 (예: v4.3.2)
-  uri_version        uri 버전 (예: uri1.23)
+Arguments:
+  upstream_version   Upstream version (for example, v1.2.3+build)
+  patchset_version   Patchset version (for example, stack-a)
 
-옵션:
-  -h, --help         이 도움말을 출력합니다
-  --include-dev      dev-dependencies를 그래프에 포함합니다
-  --format FORMAT    출력 형식: tree 또는 dot (기본값: tree)
+Options:
+  -h, --help         Print this help text
+  --include-dev      Include dev-dependencies in the graph
+  --format FORMAT    Output format: tree or dot (default: tree)
 
-예시:
-  uri graph v4.3.2 uri1.23
-  uri graph v4.3.2 uri1.23 --include-dev
-  uri graph v4.3.2 uri1.23 --format dot
+Examples:
+  uri graph v1.2.3+build stack-a
+  uri graph v1.2.3+build stack-a --include-dev
+  uri graph v1.2.3+build stack-a --format dot
 EOF
 }
 
-# graph 명령 메인 함수
+# Main graph command function
 cmd_graph() {
-    _mastodon_ver=""
-    _uri_ver=""
+    _upstream_version=""
+    _patchset_version=""
     _include_dev=false
     _format="tree"
 
@@ -44,7 +44,7 @@ cmd_graph() {
             --format)
                 shift
                 if [ $# -eq 0 ]; then
-                    die "--format 값이 필요합니다. tree 또는 dot을 지정하세요."
+                    die "--format requires a value. Specify tree or dot."
                 fi
                 _format="$1"
                 ;;
@@ -52,39 +52,42 @@ cmd_graph() {
                 _format="${1#--format=}"
                 ;;
             -*)
-                die "알 수 없는 옵션: $1"
+                die "Unknown option: $1"
                 ;;
             *)
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
-                elif [ -z "$_uri_ver" ]; then
-                    _uri_ver="$1"
+                if [ -z "$_upstream_version" ]; then
+                    _upstream_version="$1"
+                elif [ -z "$_patchset_version" ]; then
+                    _patchset_version="$1"
                 else
-                    die "인자가 너무 많습니다: $1"
+                    die "Too many arguments: $1"
                 fi
                 ;;
         esac
         shift
     done
 
-    if [ -z "$_mastodon_ver" ] || [ -z "$_uri_ver" ]; then
-        die "mastodon_version, uri_version이 필요합니다. 'uri graph --help'를 참조하세요."
+    if [ -z "$_upstream_version" ] || [ -z "$_patchset_version" ]; then
+        die "upstream_version and patchset_version are required. See 'uri graph --help'."
     fi
 
     case "$_format" in
         tree|dot)
             ;;
         *)
-            die "지원하지 않는 출력 형식입니다: $_format"
+            die "Unsupported output format: $_format"
             ;;
     esac
 
     require_uri_root
+    load_uri_config
+    validate_identifier "upstream_version" "$_upstream_version"
+    validate_identifier "patchset_version" "$_patchset_version"
 
-    _manifest=$(resolve_manifest_path "$_mastodon_ver" "$_uri_ver")
-    require_file "$_manifest" "manifest를 찾을 수 없습니다: $_manifest"
+    _manifest=$(resolve_manifest_path "$_upstream_version" "$_patchset_version")
+    require_file "$_manifest" "Could not find manifest: $_manifest"
 
-    _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
+    _merged=$(resolve_inheritance "$_upstream_version" "$_patchset_version")
 
     case "$_format" in
         tree)

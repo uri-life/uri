@@ -1,34 +1,34 @@
 #!/bin/sh
-# list.sh - list 명령 구현
-# POSIX 호환 셸 스크립트
+# list.sh - list command implementation
+# POSIX-compatible shell script
 
-# list 명령 사용법 출력
+# Print list command usage
 list_usage() {
     cat <<EOF
-사용법: uri list [mastodon_version] [uri_version] [옵션]
+Usage: uri list [upstream_version] [patchset_version] [options]
 
-버전, 패치, feature 목록을 출력합니다.
+List versions, patches, or features.
 
-인자:
-  mastodon_version   Mastodon 버전 (예: v4.3.2)
-  uri_version        uri 버전 (예: uri1.23)
+Arguments:
+  upstream_version   Upstream version (for example, v1.2.3+build)
+  patchset_version   Patchset version (for example, stack-a)
 
-옵션:
-  -h, --help         이 도움말을 출력합니다
+Options:
+  -h, --help         Print this help text
 
-예시:
-  uri list                       # 모든 Mastodon 버전 목록
-  uri list v4.3.2                # v4.3.2의 uri 패치 목록
-  uri list v4.3.2 uri1.23        # uri1.23의 feature 목록
+Examples:
+  uri list                       # List all upstream versions
+  uri list v1.2.3+build          # List patchset versions
+  uri list v1.2.3+build stack-a  # List features
 EOF
 }
 
-# list 명령 메인 함수
+# Main list command function
 cmd_list() {
-    _mastodon_ver=""
-    _uri_ver=""
+    _upstream_version=""
+    _patchset_version=""
 
-    # 옵션 파싱 (--help는 uri_root 확인 전에 처리)
+    # Parse options; handle --help before checking uri_root
     for _arg in "$@"; do
         case "$_arg" in
             -h|--help)
@@ -39,49 +39,53 @@ cmd_list() {
     done
 
     require_uri_root
+    load_uri_config
 
-    # 옵션 파싱
+    # Parse options
     while [ $# -gt 0 ]; do
         case "$1" in
             -*)
-                die "알 수 없는 옵션: $1"
+                die "Unknown option: $1"
                 ;;
             *)
-                # 위치 인자
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
-                elif [ -z "$_uri_ver" ]; then
-                    _uri_ver="$1"
+                # Positional argument
+                if [ -z "$_upstream_version" ]; then
+                    _upstream_version="$1"
+                elif [ -z "$_patchset_version" ]; then
+                    _patchset_version="$1"
                 else
-                    die "인자가 너무 많습니다: $1"
+                    die "Too many arguments: $1"
                 fi
                 ;;
         esac
         shift
     done
 
-    # 인자에 따라 분기
-    if [ -z "$_mastodon_ver" ]; then
+    [ -z "$_upstream_version" ] || validate_identifier "upstream_version" "$_upstream_version"
+    [ -z "$_patchset_version" ] || validate_identifier "patchset_version" "$_patchset_version"
+
+    # Dispatch based on the arguments
+    if [ -z "$_upstream_version" ]; then
         _list_versions
-    elif [ -z "$_uri_ver" ]; then
-        _list_patches "$_mastodon_ver"
+    elif [ -z "$_patchset_version" ]; then
+        _list_patchsets "$_upstream_version"
     else
-        _list_features "$_mastodon_ver" "$_uri_ver"
+        _list_features "$_upstream_version" "$_patchset_version"
     fi
 }
 
-# 버전 목록 출력 (내부 함수)
+# Print the version list (internal function)
 _list_versions() {
     _versions_dir="${URI_ROOT}/versions"
 
     if [ ! -d "$_versions_dir" ]; then
-        info "버전이 없습니다."
+        info "No versions."
         return
     fi
 
     _count=0
     for _ver_path in "$_versions_dir"/*; do
-        if [ -d "$_ver_path" ]; then
+        if [ -d "$_ver_path" ] && is_valid_identifier "$(basename "$_ver_path")"; then
             _ver=$(basename "$_ver_path")
             echo "$_ver"
             _count=$((_count + 1))
@@ -89,60 +93,60 @@ _list_versions() {
     done
 
     if [ $_count -eq 0 ]; then
-        info "버전이 없습니다."
+        info "No versions."
     fi
 }
 
-# 패치 목록 출력 (내부 함수)
-_list_patches() {
-    _mastodon_ver="$1"
-    _ver_dir=$(version_dir "$_mastodon_ver")
+# Print the patch list (internal function)
+_list_patchsets() {
+    _upstream_version="$1"
+    _ver_dir=$(upstream_version_dir "$_upstream_version")
     _patches_dir="${_ver_dir}/patches"
 
     if [ ! -d "$_ver_dir" ]; then
-        die "Mastodon 버전 $_mastodon_ver 가 존재하지 않습니다."
+        die "Upstream version $_upstream_version does not exist."
     fi
 
     if [ ! -d "$_patches_dir" ]; then
-        info "패치가 없습니다."
+        info "No patches."
         return
     fi
 
     _count=0
-    for _patch_path in "$_patches_dir"/uri*; do
-        if [ -d "$_patch_path" ]; then
-            _patch=$(basename "$_patch_path")
+    for _patch_manifest in "$_patches_dir"/*/manifest.yaml; do
+        if [ -f "$_patch_manifest" ] && is_valid_identifier "$(basename "$(dirname "$_patch_manifest")")"; then
+            _patch=$(basename "$(dirname "$_patch_manifest")")
             echo "$_patch"
             _count=$((_count + 1))
         fi
     done
 
     if [ $_count -eq 0 ]; then
-        info "패치가 없습니다."
+        info "No patches."
     fi
 }
 
-# feature 목록 출력 (내부 함수)
+# Print the feature list (internal function)
 _list_features() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    _manifest="${_uri_dir}/manifest.yaml"
+    _upstream_version="$1"
+    _patchset_version="$2"
+    _patchset_dir=$(patchset_version_dir "$_upstream_version" "$_patchset_version")
+    _manifest="${_patchset_dir}/manifest.yaml"
 
-    if [ ! -d "$_uri_dir" ]; then
-        die "uri 버전 $_uri_ver 가 존재하지 않습니다. (Mastodon $_mastodon_ver)"
+    if [ ! -d "$_patchset_dir" ]; then
+        die "Patchset version $_patchset_version does not exist (upstream $_upstream_version)."
     fi
 
     if [ ! -f "$_manifest" ]; then
-        die "manifest.yaml을 찾을 수 없습니다: $_manifest"
+        die "Could not find manifest.yaml: $_manifest"
     fi
 
-    # 상속과 excludes를 해석한 최종 feature 목록 추출
-    _merged=$(resolve_inheritance "$_mastodon_ver" "$_uri_ver")
+    # Extract the final feature list after resolving inheritance and excludes
+    _merged=$(resolve_inheritance "$_upstream_version" "$_patchset_version")
     _features=$(yaml_list_features "$_merged")
 
     if [ -z "$_features" ]; then
-        info "feature가 없습니다."
+        info "No features."
         return
     fi
 

@@ -1,9 +1,9 @@
 #!/bin/sh
-# expand_spec.sh - lib/commands/expand.sh 테스트
+# expand_spec.sh - Tests for lib/commands/expand.sh
 
 Describe 'lib/commands/expand.sh'
-  Skip if "yq가 설치되어 있지 않습니다" has_no_yq
-  Skip if "git이 설치되어 있지 않습니다" has_no_git
+  Skip if "yq is not installed" has_no_yq
+  Skip if "git is not installed" has_no_git
 
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/yaml.sh"
@@ -16,9 +16,9 @@ Describe 'lib/commands/expand.sh'
   Include "$LIB_DIR/commands/expand.sh"
 
   Describe 'expand_usage()'
-    It '도움말을 출력한다'
+    It 'prints help'
       When call expand_usage
-      The output should include "사용법"
+      The output should include "Usage"
       The output should include "uri expand"
     End
   End
@@ -29,238 +29,244 @@ Describe 'lib/commands/expand.sh'
     }
 
     setup_expand_env() {
-      # 패치 세트 생성
+      # Create a patch set
       cd "$TEST_TMPDIR" || return 1
-      cmd_init "v4.3.0" >/dev/null 2>&1
+      cmd_init --upstream "https://github.com/mastodon/mastodon.git" "v4.3.0" >/dev/null 2>&1
       URI_ROOT="$TEST_TMPDIR"
       export URI_ROOT
       cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.0" "base" >/dev/null 2>&1 || true
 
-      # Git 리포 생성 + 태그
-      MASTODON_DIR="${TEST_TMPDIR}/mastodon"
-      export MASTODON_DIR
-      mkdir -p "$MASTODON_DIR"
-      git init -b main "$MASTODON_DIR" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" config user.email "test@example.com"
-      git -C "$MASTODON_DIR" config user.name "Test"
-      git -C "$MASTODON_DIR" config tag.gpgSign false
-      git -C "$MASTODON_DIR" config commit.gpgSign false
-      echo "initial" > "${MASTODON_DIR}/README.md"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Initial commit" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" tag "v4.3.0"
+      # Create and tag a Git repository
+      UPSTREAM_DIR="${TEST_TMPDIR}/mastodon"
+      export UPSTREAM_DIR
+      mkdir -p "$UPSTREAM_DIR"
+      git init -b main "$UPSTREAM_DIR" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" config user.email "test@example.com"
+      git -C "$UPSTREAM_DIR" config user.name "Test"
+      git -C "$UPSTREAM_DIR" config tag.gpgSign false
+      git -C "$UPSTREAM_DIR" config commit.gpgSign false
+      git -C "$UPSTREAM_DIR" remote add origin "$UPSTREAM_DIR"
+      yaml_set "$TEST_TMPDIR/manifest.yaml" ".upstream" "$UPSTREAM_DIR"
+      echo "initial" > "${UPSTREAM_DIR}/README.md"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Initial commit" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" tag "v4.3.0"
 
-      # base feature에 실제 패치 생성
-      echo "hello" > "${MASTODON_DIR}/hello.txt"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Add hello" >/dev/null 2>&1
+      # Create a real patch for the base feature
+      echo "hello" > "${UPSTREAM_DIR}/hello.txt"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Add hello" >/dev/null 2>&1
 
-      # 패치 디렉터리 보장 및 패치 추출
+      # Ensure the patch directory exists and extract the patch
       _patch_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0"
       mkdir -p "$_patch_dir"
-      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/base.patch"
+      git -C "$UPSTREAM_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/base.patch"
 
-      # 태그 위치로 리셋
-      git -C "$MASTODON_DIR" checkout -b temp_for_reset "v4.3.0" >/dev/null 2>&1
+      # Reset to the tag
+      git -C "$UPSTREAM_DIR" checkout -b temp_for_reset "v4.3.0" >/dev/null 2>&1
     }
     BeforeEach 'setup_expand_env'
 
-    It 'feature를 Mastodon 소스에 적용한다'
-      When call cmd_expand "v4.3.0" "uri1.0" "base" "$MASTODON_DIR"
+    It 'applies a feature to the upstream source'
+      When call cmd_expand "v4.3.0" "uri1.0" "base" "$UPSTREAM_DIR"
       The status should be success
-      The output should include "적용 완료"
-      The path "${MASTODON_DIR}/hello.txt" should be exist
+      The output should include "Applied"
+      The path "${UPSTREAM_DIR}/hello.txt" should be exist
     End
 
-    It 'feature 브랜치를 생성한다'
-      cmd_expand "v4.3.0" "uri1.0" "base" "$MASTODON_DIR" >/dev/null 2>&1 || true
-      When call git_branch_exists "$MASTODON_DIR" "uri/v4.3.0/uri1.0/base"
+    It 'creates a feature branch'
+      cmd_expand "v4.3.0" "uri1.0" "base" "$UPSTREAM_DIR" >/dev/null 2>&1 || true
+      When call git_branch_exists "$UPSTREAM_DIR" "uri/v4.3.0/uri1.0/base"
       The status should be success
     End
 
-    It '빈 패치도 checkpoint 브랜치를 생성한다'
+    It 'creates a checkpoint branch for an empty patch'
       cmd_add "v4.3.0" "uri1.0" "empty" >/dev/null 2>&1 || true
-      cmd_expand "v4.3.0" "uri1.0" "empty" "$MASTODON_DIR" >/dev/null 2>&1 || true
-      When call git_branch_exists "$MASTODON_DIR" "uri/v4.3.0/uri1.0/empty"
+      cmd_expand "v4.3.0" "uri1.0" "empty" "$UPSTREAM_DIR" >/dev/null 2>&1 || true
+      When call git_branch_exists "$UPSTREAM_DIR" "uri/v4.3.0/uri1.0/empty"
       The status should be success
     End
 
-    It '완료 후 상태 파일이 정리된다'
-      cmd_expand "v4.3.0" "uri1.0" "base" "$MASTODON_DIR" >/dev/null 2>&1 || true
-      When call state_exists "$MASTODON_DIR"
+    It 'clears the state file after completion'
+      cmd_expand "v4.3.0" "uri1.0" "base" "$UPSTREAM_DIR" >/dev/null 2>&1 || true
+      When call state_exists "$UPSTREAM_DIR"
       The status should be failure
     End
 
-    It '제외된 상속 feature를 적용하지 않는다'
+    It 'does not apply an excluded inherited feature'
       cmd_add "v4.3.0" "uri1.1" --inherits "uri1.0" >/dev/null
       _child_manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
       yaml_append_exclude "$_child_manifest" "base"
-      When call run_expand_command "v4.3.0" "uri1.1" "base" "$MASTODON_DIR"
+      When call run_expand_command "v4.3.0" "uri1.1" "base" "$UPSTREAM_DIR"
       The status should be failure
-      The stderr should include "feature를 찾을 수 없습니다: base"
-      The path "${MASTODON_DIR}/hello.txt" should not be exist
+      The stderr should include "Could not find feature: base"
+      The path "${UPSTREAM_DIR}/hello.txt" should not be exist
     End
   End
 
-  Describe '개발 의존성'
+  Describe 'development dependencies'
     setup_expand_dev_env() {
       cd "$TEST_TMPDIR" || return 1
-      cmd_init "v4.3.0" >/dev/null 2>&1
+      cmd_init --upstream "https://github.com/mastodon/mastodon.git" "v4.3.0" >/dev/null 2>&1
       URI_ROOT="$TEST_TMPDIR"
       export URI_ROOT
       cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.0" "dev_base" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.0" "feature" --dev-dependencies "dev_base" >/dev/null 2>&1 || true
 
-      MASTODON_DIR="${TEST_TMPDIR}/mastodon"
-      export MASTODON_DIR
-      mkdir -p "$MASTODON_DIR"
-      git init -b main "$MASTODON_DIR" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" config user.email "test@example.com"
-      git -C "$MASTODON_DIR" config user.name "Test"
-      git -C "$MASTODON_DIR" config tag.gpgSign false
-      git -C "$MASTODON_DIR" config commit.gpgSign false
-      echo "initial" > "${MASTODON_DIR}/README.md"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Initial commit" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" tag "v4.3.0"
+      UPSTREAM_DIR="${TEST_TMPDIR}/mastodon"
+      export UPSTREAM_DIR
+      mkdir -p "$UPSTREAM_DIR"
+      git init -b main "$UPSTREAM_DIR" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" config user.email "test@example.com"
+      git -C "$UPSTREAM_DIR" config user.name "Test"
+      git -C "$UPSTREAM_DIR" config tag.gpgSign false
+      git -C "$UPSTREAM_DIR" config commit.gpgSign false
+      git -C "$UPSTREAM_DIR" remote add origin "$UPSTREAM_DIR"
+      yaml_set "$TEST_TMPDIR/manifest.yaml" ".upstream" "$UPSTREAM_DIR"
+      echo "initial" > "${UPSTREAM_DIR}/README.md"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Initial commit" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" tag "v4.3.0"
 
       _patch_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0"
 
-      echo "dev" > "${MASTODON_DIR}/dev.txt"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Add dev dependency" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/dev_base.patch"
+      echo "dev" > "${UPSTREAM_DIR}/dev.txt"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Add dev dependency" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/dev_base.patch"
 
-      git -C "$MASTODON_DIR" checkout -b feature_patch "v4.3.0" >/dev/null 2>&1
-      echo "feature" > "${MASTODON_DIR}/feature.txt"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Add feature" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/feature.patch"
+      git -C "$UPSTREAM_DIR" checkout -b feature_patch "v4.3.0" >/dev/null 2>&1
+      echo "feature" > "${UPSTREAM_DIR}/feature.txt"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Add feature" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/feature.patch"
 
-      git -C "$MASTODON_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
     }
     BeforeEach 'setup_expand_dev_env'
 
-    It '기본 expand는 개발 의존성을 포함한다'
-      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR"
+    It 'includes development dependencies by default'
+      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$UPSTREAM_DIR"
       The status should be success
-      The output should include "적용 완료"
-      The path "${MASTODON_DIR}/dev.txt" should be exist
-      The path "${MASTODON_DIR}/feature.txt" should be exist
+      The output should include "Applied"
+      The path "${UPSTREAM_DIR}/dev.txt" should be exist
+      The path "${UPSTREAM_DIR}/feature.txt" should be exist
     End
 
-    It '--no-dev는 개발 의존성을 제외한다'
-      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$MASTODON_DIR" --no-dev
+    It 'excludes development dependencies with --no-dev'
+      When call cmd_expand "v4.3.0" "uri1.0" "feature" "$UPSTREAM_DIR" --no-dev
       The status should be success
-      The output should include "적용 완료"
-      The path "${MASTODON_DIR}/dev.txt" should not be exist
-      The path "${MASTODON_DIR}/feature.txt" should be exist
+      The output should include "Applied"
+      The path "${UPSTREAM_DIR}/dev.txt" should not be exist
+      The path "${UPSTREAM_DIR}/feature.txt" should be exist
     End
   End
 
-  Describe '충돌 시 --continue / --abort'
+  Describe '--continue / --abort during conflicts'
     setup_conflict_env() {
       cd "$TEST_TMPDIR" || return 1
-      cmd_init "v4.3.0" >/dev/null 2>&1
+      cmd_init --upstream "https://github.com/mastodon/mastodon.git" "v4.3.0" >/dev/null 2>&1
       URI_ROOT="$TEST_TMPDIR"
       export URI_ROOT
       cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.0" "base" >/dev/null 2>&1 || true
       cmd_add "v4.3.0" "uri1.0" "conflict_feat" >/dev/null 2>&1 || true
 
-      # conflict_feat가 base에 의존하도록 설정
+      # Make conflict_feat depend on base
       _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml"
       yq -i '.features.conflict_feat.dependencies = ["base"]' "$_manifest"
 
-      # Git 리포 생성 + 태그
-      MASTODON_DIR="${TEST_TMPDIR}/mastodon"
-      export MASTODON_DIR
-      mkdir -p "$MASTODON_DIR"
-      git init -b main "$MASTODON_DIR" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" config user.email "test@example.com"
-      git -C "$MASTODON_DIR" config user.name "Test"
-      git -C "$MASTODON_DIR" config tag.gpgSign false
-      git -C "$MASTODON_DIR" config commit.gpgSign false
-      echo "initial" > "${MASTODON_DIR}/README.md"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Initial commit" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" tag "v4.3.0"
+      # Create and tag a Git repository
+      UPSTREAM_DIR="${TEST_TMPDIR}/mastodon"
+      export UPSTREAM_DIR
+      mkdir -p "$UPSTREAM_DIR"
+      git init -b main "$UPSTREAM_DIR" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" config user.email "test@example.com"
+      git -C "$UPSTREAM_DIR" config user.name "Test"
+      git -C "$UPSTREAM_DIR" config tag.gpgSign false
+      git -C "$UPSTREAM_DIR" config commit.gpgSign false
+      git -C "$UPSTREAM_DIR" remote add origin "$UPSTREAM_DIR"
+      yaml_set "$TEST_TMPDIR/manifest.yaml" ".upstream" "$UPSTREAM_DIR"
+      echo "initial" > "${UPSTREAM_DIR}/README.md"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Initial commit" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" tag "v4.3.0"
 
       _patch_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0"
 
-      # base 패치: hello.txt에 "hello" 추가
-      echo "hello" > "${MASTODON_DIR}/hello.txt"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Add hello" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/base.patch"
+      # Base patch: add "hello" to hello.txt
+      echo "hello" > "${UPSTREAM_DIR}/hello.txt"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Add hello" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/base.patch"
 
-      # conflict 패치: 같은 파일에 다른 내용 (태그 기준에서 생성 → 충돌 유발)
-      git -C "$MASTODON_DIR" checkout -b conflict_branch "v4.3.0" >/dev/null 2>&1
-      echo "conflict content" > "${MASTODON_DIR}/hello.txt"
-      git -C "$MASTODON_DIR" add . >/dev/null 2>&1
-      git -C "$MASTODON_DIR" commit -m "Add conflict" >/dev/null 2>&1
-      git -C "$MASTODON_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/conflict_feat.patch"
+      # Conflict patch: different content in the same file, based on the tag, to cause a conflict
+      git -C "$UPSTREAM_DIR" checkout -b conflict_branch "v4.3.0" >/dev/null 2>&1
+      echo "conflict content" > "${UPSTREAM_DIR}/hello.txt"
+      git -C "$UPSTREAM_DIR" add . >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" commit -m "Add conflict" >/dev/null 2>&1
+      git -C "$UPSTREAM_DIR" format-patch --stdout "v4.3.0..HEAD" > "${_patch_dir}/conflict_feat.patch"
 
-      # 태그 위치로 복귀 (expand 시작 준비)
-      git -C "$MASTODON_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
+      # Return to the tag in preparation for expand
+      git -C "$UPSTREAM_DIR" checkout -b ready_branch "v4.3.0" >/dev/null 2>&1
     }
     BeforeEach 'setup_conflict_env'
 
-    It '--continue로 충돌 해결 후 계속 진행한다'
-      # expand 실행 → conflict_feat에서 충돌 (exit 1)
-      # 서브셸로 감싸서 exit 1이 테스트 프로세스를 종료하지 않도록 함
-      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$MASTODON_DIR" ) >/dev/null 2>&1 || true
+    It 'continues with --continue after resolving a conflict'
+      # Run expand and conflict at conflict_feat with exit status 1
+      # Use a subshell so exit status 1 does not terminate the test process
+      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$UPSTREAM_DIR" ) >/dev/null 2>&1 || true
 
-      # 외부 상태가 생성되었는지 확인
+      # Check that external state was created
       STATE_OPERATION="expand"
       export STATE_OPERATION
-      state_in_progress "$MASTODON_DIR" || return 1
+      state_in_progress "$UPSTREAM_DIR" || return 1
 
-      # 충돌 해결: 파일 수정 + git add
-      echo "resolved" > "${MASTODON_DIR}/hello.txt"
-      git -C "$MASTODON_DIR" add hello.txt >/dev/null 2>&1
+      # Resolve the conflict by editing the file and running git add
+      echo "resolved" > "${UPSTREAM_DIR}/hello.txt"
+      git -C "$UPSTREAM_DIR" add hello.txt >/dev/null 2>&1
 
-      When call cmd_expand "$MASTODON_DIR" --continue
+      When call cmd_expand "$UPSTREAM_DIR" --continue
       The status should be success
-      The output should include "적용 완료"
-      The path "${MASTODON_DIR}/.uri_state" should not be exist
+      The output should include "Applied"
+      The path "${UPSTREAM_DIR}/.uri_state" should not be exist
     End
 
-    It '--abort로 작업을 중단하고 원복한다'
-      # 시작 커밋 기억
-      _start_commit=$(git -C "$MASTODON_DIR" rev-parse HEAD)
+    It 'aborts and restores the operation with --abort'
+      # Remember the starting commit
+      _start_commit=$(git -C "$UPSTREAM_DIR" rev-parse HEAD)
 
-      # expand 실행 → 충돌 발생
-      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$MASTODON_DIR" ) >/dev/null 2>&1 || true
+      # Run expand and cause a conflict
+      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$UPSTREAM_DIR" ) >/dev/null 2>&1 || true
 
-      When call cmd_expand "$MASTODON_DIR" --abort
+      When call cmd_expand "$UPSTREAM_DIR" --abort
       The status should be success
-      The output should include "중단"
-      The path "${MASTODON_DIR}/.uri_state" should not be exist
+      The output should include "aborted"
+      The path "${UPSTREAM_DIR}/.uri_state" should not be exist
     End
 
-    It '--abort 후 HEAD가 시작 커밋으로 돌아간다'
-      _start_commit=$(git -C "$MASTODON_DIR" rev-parse HEAD)
+    It 'returns HEAD to the starting commit after --abort'
+      _start_commit=$(git -C "$UPSTREAM_DIR" rev-parse HEAD)
 
-      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$MASTODON_DIR" ) >/dev/null 2>&1 || true
+      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$UPSTREAM_DIR" ) >/dev/null 2>&1 || true
 
-      cmd_expand "$MASTODON_DIR" --abort >/dev/null 2>&1 || true
+      cmd_expand "$UPSTREAM_DIR" --abort >/dev/null 2>&1 || true
 
-      When call git -C "$MASTODON_DIR" rev-parse HEAD
+      When call git -C "$UPSTREAM_DIR" rev-parse HEAD
       The output should equal "$_start_commit"
     End
 
-    It '--continue 후 feature 브랜치가 생성된다'
-      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$MASTODON_DIR" ) >/dev/null 2>&1 || true
+    It 'creates the feature branch after --continue'
+      ( cmd_expand "v4.3.0" "uri1.0" "conflict_feat" "$UPSTREAM_DIR" ) >/dev/null 2>&1 || true
 
-      echo "resolved" > "${MASTODON_DIR}/hello.txt"
-      git -C "$MASTODON_DIR" add hello.txt >/dev/null 2>&1
+      echo "resolved" > "${UPSTREAM_DIR}/hello.txt"
+      git -C "$UPSTREAM_DIR" add hello.txt >/dev/null 2>&1
 
-      cmd_expand "$MASTODON_DIR" --continue >/dev/null 2>&1 || true
+      cmd_expand "$UPSTREAM_DIR" --continue >/dev/null 2>&1 || true
 
-      When call git_branch_exists "$MASTODON_DIR" "uri/v4.3.0/uri1.0/conflict_feat"
+      When call git_branch_exists "$UPSTREAM_DIR" "uri/v4.3.0/uri1.0/conflict_feat"
       The status should be success
     End
   End

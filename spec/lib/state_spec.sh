@@ -1,5 +1,5 @@
 #!/bin/sh
-# state_spec.sh - lib/state.sh 테스트
+# state_spec.sh - Tests for lib/state.sh
 
 Describe 'lib/state.sh'
   Include "$LIB_DIR/common.sh"
@@ -7,7 +7,7 @@ Describe 'lib/state.sh'
   Include "$LIB_DIR/state.sh"
 
   Describe 'state_file()'
-    It '리포지토리 밖의 상태 파일 경로를 반환한다'
+    It 'returns a state file path outside the repository'
       When call state_file "/tmp/repo"
       The output should match pattern "*/uri/state/*.state"
       The output should not include "/tmp/repo/.uri_state"
@@ -15,53 +15,53 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_save() / state_get()'
-    It 'key-value를 저장하고 읽을 수 있다'
+    It 'stores and reads a key-value pair'
       state_save "$TEST_TMPDIR" "mykey" "myvalue"
       When call state_get "$TEST_TMPDIR" "mykey"
       The output should eq "myvalue"
     End
 
-    It '리포지토리 안에 .uri_state를 만들지 않는다'
+    It 'does not create .uri_state inside the repository'
       state_save "$TEST_TMPDIR" "mykey" "myvalue"
       When call test -f "${TEST_TMPDIR}/.uri_state"
       The status should be failure
     End
 
-    It '값을 덮어쓸 수 있다'
+    It 'overwrites a value'
       state_save "$TEST_TMPDIR" "key" "old" || true
       state_save "$TEST_TMPDIR" "key" "new" || true
       When call state_get "$TEST_TMPDIR" "key"
       The output should eq "new"
     End
 
-    It '여러 키를 저장할 수 있다'
+    It 'stores multiple keys'
       state_save "$TEST_TMPDIR" "a" "1"
       state_save "$TEST_TMPDIR" "b" "2"
       When call state_get "$TEST_TMPDIR" "a"
       The output should eq "1"
     End
 
-    It '값에 공백을 포함할 수 있다'
+    It 'allows spaces in a value'
       state_save "$TEST_TMPDIR" "spaced" "hello world"
       When call state_get "$TEST_TMPDIR" "spaced"
       The output should eq "hello world"
     End
 
-    It '존재하지 않는 키는 빈 문자열을 반환한다'
+    It 'returns an empty string for a nonexistent key'
       When call state_get "$TEST_TMPDIR" "nonexistent"
       The output should eq ""
     End
   End
 
   Describe 'state_delete()'
-    It '특정 키를 삭제할 수 있다'
+    It 'deletes a specific key'
       state_save "$TEST_TMPDIR" "delkey" "value" || true
       state_delete "$TEST_TMPDIR" "delkey" || true
       When call state_get "$TEST_TMPDIR" "delkey"
       The output should eq ""
     End
 
-    It '다른 키에 영향을 주지 않는다'
+    It 'does not affect other keys'
       state_save "$TEST_TMPDIR" "keep" "kept"
       state_save "$TEST_TMPDIR" "remove" "gone"
       state_delete "$TEST_TMPDIR" "remove"
@@ -71,7 +71,7 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_clear()'
-    It '상태 파일을 삭제한다'
+    It 'deletes the state file'
       state_save "$TEST_TMPDIR" "key" "val"
       state_clear "$TEST_TMPDIR"
       When call state_exists "$TEST_TMPDIR"
@@ -80,26 +80,26 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_exists()'
-    It '상태 파일이 있으면 true를 반환한다'
+    It 'returns true when the state file exists'
       state_save "$TEST_TMPDIR" "x" "y"
       When call state_exists "$TEST_TMPDIR"
       The status should be success
     End
 
-    It '상태 파일이 없으면 false를 반환한다'
+    It 'returns false when the state file does not exist'
       When call state_exists "$TEST_TMPDIR"
       The status should be failure
     End
   End
 
   Describe 'state_in_progress()'
-    It 'operation 키가 있으면 true를 반환한다'
+    It 'returns true when the operation key exists'
       state_save "$TEST_TMPDIR" "operation" "expand"
       When call state_in_progress "$TEST_TMPDIR"
       The status should be success
     End
 
-    It 'operation 키가 없으면 false를 반환한다'
+    It 'returns false when the operation key does not exist'
       state_save "$TEST_TMPDIR" "other" "value"
       When call state_in_progress "$TEST_TMPDIR"
       The status should be failure
@@ -107,14 +107,14 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_increment_index()'
-    It '인덱스를 1 증가시킨다'
+    It 'increments the index by 1'
       state_save "$TEST_TMPDIR" "current_index" "3" || true
       state_increment_index "$TEST_TMPDIR" || true
       When call state_get "$TEST_TMPDIR" "current_index"
       The output should eq "4"
     End
 
-    It '0에서 시작하여 증가시킨다'
+    It 'starts at 0 and increments'
       state_save "$TEST_TMPDIR" "current_index" "0" || true
       state_increment_index "$TEST_TMPDIR" || true
       When call state_get "$TEST_TMPDIR" "current_index"
@@ -123,14 +123,14 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_get_completed_features()'
-    It '현재 인덱스 전까지의 feature를 반환한다'
+    It 'returns features before the current index'
       state_save "$TEST_TMPDIR" "features" "a b c d"
       state_save "$TEST_TMPDIR" "current_index" "2"
       When call state_get_completed_features "$TEST_TMPDIR"
       The output should eq "a b"
     End
 
-    It '인덱스가 0이면 빈 결과를 반환한다'
+    It 'returns an empty result when the index is 0'
       state_save "$TEST_TMPDIR" "features" "a b c"
       state_save "$TEST_TMPDIR" "current_index" "0"
       When call state_get_completed_features "$TEST_TMPDIR"
@@ -139,14 +139,14 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_get_remaining_features()'
-    It '현재 인덱스부터의 feature를 반환한다'
+    It 'returns features starting at the current index'
       state_save "$TEST_TMPDIR" "features" "a b c d"
       state_save "$TEST_TMPDIR" "current_index" "2"
       When call state_get_remaining_features "$TEST_TMPDIR"
       The output should eq "c d"
     End
 
-    It '인덱스가 0이면 전체를 반환한다'
+    It 'returns all features when the index is 0'
       state_save "$TEST_TMPDIR" "features" "a b c"
       state_save "$TEST_TMPDIR" "current_index" "0"
       When call state_get_remaining_features "$TEST_TMPDIR"
@@ -155,25 +155,62 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_save_expand()'
-    Skip if "git이 설치되어 있지 않습니다" has_no_git
+    Skip if "git is not installed" has_no_git
 
-    It 'expand 상태를 일괄 저장한다'
+    It 'stores expand state in one operation'
       REPO="${TEST_TMPDIR}/repo"
       create_test_git_repo "$REPO"
       state_save_expand "$REPO" "v4.3.0" "uri1.0" "base emoji" "0"
       When call state_get "$REPO" "operation"
       The output should eq "expand"
     End
+
+    It 'stores neutral version keys and operation settings'
+      REPO="${TEST_TMPDIR}/repo"
+      create_test_git_repo "$REPO"
+      URI_BRANCH_PREFIX="custom"
+      URI_GIT_NAME="State User"
+      URI_GIT_EMAIL="state@example.com"
+      state_save_expand "$REPO" "v1.2.3+build" "stack-a" "base" "0"
+      _state_path=$(state_file "$REPO")
+      When call state_get_patchset_version "$REPO"
+      The output should eq "stack-a"
+      The contents of file "$_state_path" should include "branch_prefix=custom"
+    End
+
+    It 'restores the prefix and committer saved at operation start'
+      REPO="${TEST_TMPDIR}/repo"
+      create_test_git_repo "$REPO"
+      URI_BRANCH_PREFIX="saved"
+      URI_GIT_NAME="Saved User"
+      URI_GIT_EMAIL="saved@example.com"
+      state_save_expand "$REPO" "v1" "stack" "base" "0"
+      URI_BRANCH_PREFIX="changed"
+      URI_GIT_NAME="Changed User"
+      URI_GIT_EMAIL="changed@example.com"
+      state_restore_operation_config "$REPO"
+      When call printf '%s:%s <%s>' "$URI_BRANCH_PREFIX" "$URI_GIT_NAME" "$URI_GIT_EMAIL"
+      The output should eq 'saved:Saved User <saved@example.com>'
+    End
+  End
+
+  Describe 'legacy state fallback'
+    It 'continues to read mastodon_version and uri_version'
+      state_save "$TEST_TMPDIR" "mastodon_version" "v4.5.16"
+      state_save "$TEST_TMPDIR" "uri_version" "uri3.2"
+      When call state_get_patchset_version "$TEST_TMPDIR"
+      The output should eq "uri3.2"
+    End
   End
 
   Describe 'state_save_collapse()'
-    It 'collapse 상태를 일괄 저장한다'
+    It 'stores collapse state in one operation'
       state_save_collapse "$TEST_TMPDIR" "v4.3.0" "uri1.0" "base emoji" "1"
       When call state_get "$TEST_TMPDIR" "operation"
       The output should eq "collapse"
     End
 
-    It 'features를 저장한다'
+    It 'stores features'
       state_save_collapse "$TEST_TMPDIR" "v4.3.0" "uri1.0" "base emoji theme" "0"
       When call state_get "$TEST_TMPDIR" "features"
       The output should eq "base emoji theme"
@@ -181,7 +218,7 @@ Describe 'lib/state.sh'
   End
 
   Describe 'state_show()'
-    It '진행 중인 작업 정보를 출력한다'
+    It 'prints information about the operation in progress'
       state_save "$TEST_TMPDIR" "operation" "expand"
       state_save "$TEST_TMPDIR" "mastodon_version" "v4.3.0"
       state_save "$TEST_TMPDIR" "uri_version" "uri1.0"
@@ -192,9 +229,9 @@ Describe 'lib/state.sh'
       The output should include "v4.3.0"
     End
 
-    It '상태 파일이 없으면 실패한다'
+    It 'fails when the state file does not exist'
       When call state_show "$TEST_TMPDIR"
-      The output should include "진행 중인 작업이 없습니다"
+      The output should include "No operation is in progress"
       The status should be failure
     End
   End

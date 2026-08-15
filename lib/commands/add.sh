@@ -1,51 +1,54 @@
 #!/bin/sh
-# add.sh - add 명령 구현
-# POSIX 호환 셸 스크립트
+# add.sh - add command implementation
+# POSIX-compatible shell script
 
-# add 명령 사용법 출력
+# Print add command usage
 add_usage() {
     cat <<EOF
-사용법: uri add <mastodon_version> [uri_version] [feature] [옵션]
+Usage: uri add <upstream_version> <patchset_version> [feature] [options]
 
-uri 버전 또는 feature를 추가합니다.
+Add a patchset version or feature.
 
-인자:
-  mastodon_version   Mastodon 버전 (예: v4.3.2)
-  uri_version        uri 버전 (예: uri1.23)
-  feature            feature 이름 (예: custom_emoji)
+Arguments:
+  upstream_version   Upstream version (for example, v1.2.3+build)
+  patchset_version   Patchset version (for example, stack-a)
+  feature            Feature name (for example, custom_emoji)
 
-옵션:
-  -h, --help             이 도움말을 출력합니다
-  --name NAME            feature 이름 (표시용)
-  --description DESC     feature 설명
-  --dependencies DEPS    의존하는 feature (쉼표 구분)
-  --dev-dependencies DEPS 개발 중에만 의존하는 feature (쉼표 구분)
-  --inherits VERSION     상속할 uri 버전
+Options:
+  -h, --help             Print this help text
+  --name NAME            Display name for the feature
+  --description DESC     Feature description
+  --dependencies DEPS    Required features (comma-separated)
+  --dev-dependencies DEPS Development-only dependencies (comma-separated)
+  --inherits VERSION     Patchset version to inherit
+  --inherits-upstream VERSION Upstream version to inherit
 
-예시:
-  uri add v4.3.2 uri1.23                           # uri 버전 추가
-  uri add v4.3.2 uri1.23 custom_emoji              # feature 추가
-  uri add v4.3.2 uri1.23 custom_emoji \\
-      --name "커스텀 이모지" \\
-      --description "이모지 기능 확장" \\
-      --dependencies "base"                        # 옵션 포함
+Examples:
+  uri add v1.2.3+build stack-a                     # Add a patchset version
+  uri add v1.2.3+build stack-a custom_emoji        # Add a feature
+  uri add v1.2.3+build stack-a custom_emoji \\
+      --name "Custom Emoji" \\
+      --description "Extended emoji support" \\
+      --dependencies "base"                        # Include options
 EOF
 }
 
-# add 명령 메인 함수
+# Main add command function
 cmd_add() {
     require_uri_root
+    load_uri_config
 
-    _mastodon_ver=""
-    _uri_ver=""
+    _upstream_version=""
+    _patchset_version=""
     _feature=""
     _name=""
     _description=""
     _dependencies=""
     _dev_dependencies=""
     _inherits=""
+    _inherits_upstream=""
 
-    # 옵션 파싱
+    # Parse options
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)
@@ -70,116 +73,151 @@ cmd_add() {
                 ;;
             --inherits)
                 shift
+                [ $# -gt 0 ] || die "--inherits requires a value."
                 _inherits="$1"
                 ;;
+            --inherits-upstream)
+                shift
+                [ $# -gt 0 ] || die "--inherits-upstream requires a value."
+                _inherits_upstream="$1"
+                ;;
             -*)
-                die "알 수 없는 옵션: $1"
+                die "Unknown option: $1"
                 ;;
             *)
-                # 위치 인자
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
-                elif [ -z "$_uri_ver" ]; then
-                    _uri_ver="$1"
+                # Positional argument
+                if [ -z "$_upstream_version" ]; then
+                    _upstream_version="$1"
+                elif [ -z "$_patchset_version" ]; then
+                    _patchset_version="$1"
                 elif [ -z "$_feature" ]; then
                     _feature="$1"
                 else
-                    die "인자가 너무 많습니다: $1"
+                    die "Too many arguments: $1"
                 fi
                 ;;
         esac
         shift
     done
 
-    # 필수 인자 확인
-    if [ -z "$_mastodon_ver" ]; then
-        die "mastodon_version이 필요합니다. 'uri add --help'를 참조하세요."
+    # Check required arguments
+    if [ -z "$_upstream_version" ]; then
+        die "upstream_version is required. See 'uri add --help'."
     fi
+    validate_identifier "upstream_version" "$_upstream_version"
 
-    # mastodon 버전 디렉터리 확인
-    _ver_dir=$(version_dir "$_mastodon_ver")
+    # Check the upstream version directory
+    _ver_dir=$(upstream_version_dir "$_upstream_version")
     if [ ! -d "$_ver_dir" ]; then
-        die "Mastodon 버전 $_mastodon_ver 가 존재하지 않습니다. 'uri init $_mastodon_ver'를 먼저 실행하세요."
+        die "Upstream version $_upstream_version does not exist. Run 'uri init $_upstream_version' first."
     fi
 
-    if [ -z "$_uri_ver" ]; then
-        die "uri_version이 필요합니다. 'uri add --help'를 참조하세요."
+    if [ -z "$_patchset_version" ]; then
+        die "patchset_version is required. See 'uri add --help'."
     fi
+    validate_identifier "patchset_version" "$_patchset_version"
+    [ -z "$_feature" ] || validate_identifier "feature" "$_feature"
+    [ -z "$_inherits_upstream" ] || validate_identifier "inherits upstream_version" "$_inherits_upstream"
+    _validate_identifier_csv "dependencies" "$_dependencies"
+    _validate_identifier_csv "dev-dependencies" "$_dev_dependencies"
 
-    # uri 버전 추가 또는 feature 추가
+    # Add a patchset version or feature
     if [ -z "$_feature" ]; then
-        _add_uri_version "$_mastodon_ver" "$_uri_ver" "$_inherits"
+        _add_patchset_version "$_upstream_version" "$_patchset_version" "$_inherits" "$_inherits_upstream"
     else
-        _add_feature "$_mastodon_ver" "$_uri_ver" "$_feature" "$_name" "$_description" "$_dependencies" "$_dev_dependencies"
+        [ -z "$_inherits" ] || die "--inherits cannot be used when adding a feature."
+        [ -z "$_inherits_upstream" ] || die "--inherits-upstream cannot be used when adding a feature."
+        _add_feature "$_upstream_version" "$_patchset_version" "$_feature" "$_name" "$_description" "$_dependencies" "$_dev_dependencies"
     fi
 }
 
-# uri 버전 추가 (내부 함수)
-_add_uri_version() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
+_validate_identifier_csv() {
+    _vic_label="$1"
+    _vic_csv="$2"
+    [ -n "$_vic_csv" ] || return 0
+    _vic_old_ifs="$IFS"
+    IFS=','
+    for _vic_item in $_vic_csv; do
+        _vic_item=$(echo "$_vic_item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [ -n "$_vic_item" ] || continue
+        validate_identifier "$_vic_label feature" "$_vic_item"
+    done
+    IFS="$_vic_old_ifs"
+}
+
+# Add a patchset version (internal function)
+_add_patchset_version() {
+    _upstream_version="$1"
+    _patchset_version="$2"
     _inherits="$3"
+    _inherits_upstream="$4"
 
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    _manifest="${_uri_dir}/manifest.yaml"
+    _patchset_dir=$(patchset_version_dir "$_upstream_version" "$_patchset_version")
+    _manifest="${_patchset_dir}/manifest.yaml"
 
-    if [ -d "$_uri_dir" ]; then
-        die "uri 버전이 이미 존재합니다: $_uri_dir"
+    if [ -d "$_patchset_dir" ]; then
+        die "Patchset version already exists: $_patchset_dir"
     fi
 
-    info "uri 버전 $_uri_ver 를 추가합니다..."
+    info "Adding patchset version $_patchset_version..."
 
-    # 디렉터리 생성
-    mkdir -p "$_uri_dir"
-
-    # manifest 생성
-    cat > "$_manifest" <<EOF
-# uri 버전: ${_mastodon_ver}+${_uri_ver}
-EOF
-
-    # inherits 추가 (있는 경우)
-    if [ -n "$_inherits" ]; then
-        echo "inherits: \"$_inherits\"" >> "$_manifest"
+    _parent_upstream="$_inherits_upstream"
+    _parent_patchset="$_inherits"
+    if [ -n "$_inherits" ] && [ -z "$_inherits_upstream" ]; then
+        _parsed=$(parse_legacy_inherits "$_inherits")
+        _parsed_upstream=${_parsed%%|*}
+        _parsed_patchset=${_parsed#*|}
+        if [ -n "$_parsed_upstream" ]; then
+            _parent_upstream="$_parsed_upstream"
+            _parent_patchset="$_parsed_patchset"
+        fi
+    fi
+    [ -z "$_parent_upstream" ] || validate_identifier "inherits upstream_version" "$_parent_upstream"
+    [ -z "$_parent_patchset" ] || validate_identifier "inherits patchset_version" "$_parent_patchset"
+    if [ -n "$_parent_upstream" ] && [ -z "$_parent_patchset" ]; then
+        die "--inherits-upstream requires --inherits PATCHSET_VERSION."
     fi
 
-    # excludes/features 섹션 추가
-    {
-        echo ""
-        echo "excludes: []"
-        echo ""
-        echo "features: {}"
-    } >> "$_manifest"
+    # Create the directory
+    mkdir -p "$_patchset_dir"
 
-    success "uri 버전 추가 완료: $_uri_dir"
+    yq -n '{"excludes": [], "features": {}}' > "$_manifest"
+    if [ -n "$_parent_patchset" ]; then
+        [ -n "$_parent_upstream" ] || _parent_upstream="$_upstream_version"
+        URI_PARENT_UPSTREAM="$_parent_upstream" URI_PARENT_PATCHSET="$_parent_patchset" \
+            yq eval -i '.inherits = {"upstream-version": strenv(URI_PARENT_UPSTREAM), "patchset-version": strenv(URI_PARENT_PATCHSET)}' "$_manifest"
+    fi
+
+    success "Added patchset version: $_patchset_dir"
 }
 
-# feature 추가 (내부 함수)
+# Add a feature (internal function)
 _add_feature() {
-    _mastodon_ver="$1"
-    _uri_ver="$2"
+    _upstream_version="$1"
+    _patchset_version="$2"
     _feature="$3"
     _name="$4"
     _description="$5"
     _dependencies="$6"
     _dev_dependencies="$7"
 
-    _uri_dir=$(uri_version_dir "$_mastodon_ver" "$_uri_ver")
-    _manifest="${_uri_dir}/manifest.yaml"
-    _patch_file="${_uri_dir}/${_feature}.patch"
+    _patchset_dir=$(patchset_version_dir "$_upstream_version" "$_patchset_version")
+    _manifest="${_patchset_dir}/manifest.yaml"
+    _patch_file="${_patchset_dir}/${_feature}.patch"
 
-    # uri 버전 존재 확인
-    if [ ! -d "$_uri_dir" ]; then
-        die "uri 버전이 존재하지 않습니다: $_uri_dir. 'uri add $_mastodon_ver $_uri_ver'를 먼저 실행하세요."
+    # Check that the patchset version exists
+    if [ ! -d "$_patchset_dir" ]; then
+        die "Patchset version does not exist: $_patchset_dir. Run 'uri add $_upstream_version $_patchset_version' first."
     fi
 
-    # feature 중복 확인
-    if yaml_has "$_manifest" ".features.$_feature"; then
-        die "feature가 이미 존재합니다: $_feature"
+    # Check for a duplicate feature
+    if yaml_has_feature "$_manifest" "$_feature"; then
+        die "Feature already exists: $_feature"
     fi
 
-    info "feature $_feature 를 추가합니다..."
+    info "Adding feature $_feature..."
 
-    # 기본값 설정
+    # Set defaults
     if [ -z "$_name" ]; then
         _name="$_feature"
     fi
@@ -187,32 +225,26 @@ _add_feature() {
         _description=""
     fi
 
-    # feature 추가 (yq 사용)
-    yq eval -i ".features.$_feature = {}" "$_manifest"
-    yq eval -i ".features.$_feature.name = \"$_name\"" "$_manifest"
-    yq eval -i ".features.$_feature.description = \"$_description\"" "$_manifest"
-
-    # dependencies 추가
+    # Build dependencies
     if [ -n "$_dependencies" ]; then
         _dep_array=$(_csv_to_yaml_array "$_dependencies")
-        yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "$_dep_array"
     else
-        yaml_set_raw "$_manifest" ".features.$_feature.dependencies" "[]"
+        _dep_array="[]"
     fi
 
-    # dev-dependencies 추가
     if [ -n "$_dev_dependencies" ]; then
         _dev_dep_array=$(_csv_to_yaml_array "$_dev_dependencies")
-        yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "$_dev_dep_array"
     else
-        yaml_set_raw "$_manifest" ".features.$_feature.\"dev-dependencies\"" "[]"
+        _dev_dep_array="[]"
     fi
 
-    # 빈 패치 파일 생성
+    yaml_set_feature "$_manifest" "$_feature" "$_name" "$_description" "$_dep_array" "$_dev_dep_array"
+
+    # Create an empty patch file
     : > "$_patch_file"
 
-    success "feature 추가 완료: $_feature"
-    info "패치 파일: $_patch_file"
+    success "Added feature: $_feature"
+    info "Patch file: $_patch_file"
 }
 
 _csv_to_yaml_array() {

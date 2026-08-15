@@ -1,14 +1,52 @@
 #!/bin/sh
-# yaml_spec.sh - lib/yaml.sh 테스트
+# yaml_spec.sh - Tests for lib/yaml.sh
 
 Describe 'lib/yaml.sh'
-  Skip if "yq가 설치되어 있지 않습니다" has_no_yq
+  Skip if "yq is not installed" has_no_yq
 
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/yaml.sh"
 
+  Describe 'load_uri_config()'
+    load_config_safely() {
+      (load_uri_config)
+    }
+
+    It 'applies the default prefix and URI committer to a legacy manifest'
+      URI_ROOT="$TEST_TMPDIR"
+      echo 'upstream: https://example.com/project.git' > "$TEST_TMPDIR/manifest.yaml"
+      load_uri_config
+      When call printf '%s:%s:%s <%s>' "$URI_BRANCH_PREFIX" "$URI_COMMITTER_MODE" "$URI_COMMITTER_NAME" "$URI_COMMITTER_EMAIL"
+      The output should eq 'uri:legacy:URI <uri@uri.life>'
+    End
+
+    It 'reads new repository settings'
+      URI_ROOT="$TEST_TMPDIR"
+      printf '%s\n' 'upstream: https://example.com/project.git' 'branch-prefix: custom' 'committer:' '  mode: repository' > "$TEST_TMPDIR/manifest.yaml"
+      load_uri_config
+      When call printf '%s:%s' "$URI_BRANCH_PREFIX" "$URI_COMMITTER_MODE"
+      The output should eq 'custom:repository'
+    End
+
+    It 'rejects an unknown root setting'
+      URI_ROOT="$TEST_TMPDIR"
+      printf '%s\n' 'upstream: https://example.com/project.git' 'unknown: true' > "$TEST_TMPDIR/manifest.yaml"
+      When call load_config_safely
+      The status should be failure
+      The stderr should include 'Unknown root manifest setting'
+    End
+
+    It 'rejects an incomplete explicit committer'
+      URI_ROOT="$TEST_TMPDIR"
+      printf '%s\n' 'upstream: https://example.com/project.git' 'committer:' '  mode: explicit' '  name: User' > "$TEST_TMPDIR/manifest.yaml"
+      When call load_config_safely
+      The status should be failure
+      The stderr should include 'requires non-empty name and email values'
+    End
+  End
+
   Describe 'yaml_create_empty()'
-    It '빈 YAML 파일을 생성한다'
+    It 'creates an empty YAML file'
       _file="${TEST_TMPDIR}/empty.yaml"
       When call yaml_create_empty "$_file"
       The contents of file "$_file" should eq "---"
@@ -16,7 +54,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_create()'
-    It 'key-value YAML 파일을 생성한다'
+    It 'creates a key-value YAML file'
       _file="${TEST_TMPDIR}/created.yaml"
       When call yaml_create "$_file" "name" "test"
       The contents of file "$_file" should eq "name: test"
@@ -30,19 +68,19 @@ Describe 'lib/yaml.sh'
     }
     BeforeEach 'setup'
 
-    It '값을 쓰고 읽을 수 있다'
+    It 'writes and reads a value'
       yaml_set "$_file" ".key" "value"
       When call yaml_get "$_file" ".key"
       The output should eq "value"
     End
 
-    It '중첩된 경로에 값을 쓸 수 있다'
+    It 'writes a value to a nested path'
       yaml_set "$_file" ".parent.child" "nested"
       When call yaml_get "$_file" ".parent.child"
       The output should eq "nested"
     End
 
-    It '값을 덮어쓸 수 있다'
+    It 'overwrites a value'
       yaml_set "$_file" ".key" "old"
       yaml_set "$_file" ".key" "new"
       When call yaml_get "$_file" ".key"
@@ -51,7 +89,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_set_raw()'
-    It 'raw 값(따옴표 없이)을 쓸 수 있다'
+    It 'writes a raw unquoted value'
       _file="${TEST_TMPDIR}/raw.yaml"
       echo "---" > "$_file"
       yaml_set_raw "$_file" ".count" "42"
@@ -59,7 +97,7 @@ Describe 'lib/yaml.sh'
       The output should eq "42"
     End
 
-    It '빈 배열을 raw로 설정할 수 있다'
+    It 'sets an empty array as a raw value'
       _file="${TEST_TMPDIR}/raw.yaml"
       echo "---" > "$_file"
       yaml_set_raw "$_file" ".items" "[]"
@@ -69,7 +107,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_append()'
-    It '배열에 값을 추가할 수 있다'
+    It 'appends a value to an array'
       _file="${TEST_TMPDIR}/arr.yaml"
       echo "items: []" > "$_file"
       yaml_append "$_file" ".items" "first"
@@ -80,7 +118,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_delete()'
-    It '경로를 삭제할 수 있다'
+    It 'deletes a path'
       _file="${TEST_TMPDIR}/del.yaml"
       echo "a: 1" > "$_file"
       echo "b: 2" >> "$_file"
@@ -91,7 +129,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_keys()'
-    It '객체의 키 목록을 반환한다'
+    It 'returns the keys of an object'
       _file="${TEST_TMPDIR}/keys.yaml"
       printf "alpha: 1\nbeta: 2\ngamma: 3\n" > "$_file"
       When call yaml_keys "$_file" "."
@@ -108,31 +146,31 @@ Describe 'lib/yaml.sh'
     }
     BeforeEach 'setup'
 
-    It '존재하는 경로는 true를 반환한다'
+    It 'returns true for an existing path'
       When call yaml_has "$_file" ".existing"
       The status should be success
     End
 
-    It '존재하지 않는 경로는 false를 반환한다'
+    It 'returns false for a nonexistent path'
       When call yaml_has "$_file" ".nonexistent"
       The status should be failure
     End
 
-    It '중첩된 경로도 확인할 수 있다'
+    It 'checks a nested path'
       When call yaml_has "$_file" ".nested.child"
       The status should be success
     End
   End
 
   Describe 'yaml_array_len()'
-    It '배열 길이를 반환한다'
+    It 'returns the array length'
       _file="${TEST_TMPDIR}/len.yaml"
       printf "items:\n  - a\n  - b\n  - c\n" > "$_file"
       When call yaml_array_len "$_file" ".items"
       The output should eq "3"
     End
 
-    It '빈 배열은 0을 반환한다'
+    It 'returns 0 for an empty array'
       _file="${TEST_TMPDIR}/len.yaml"
       echo "items: []" > "$_file"
       When call yaml_array_len "$_file" ".items"
@@ -141,7 +179,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_array_items()'
-    It '배열 요소를 줄바꿈 구분으로 반환한다'
+    It 'returns array elements separated by newlines'
       _file="${TEST_TMPDIR}/items.yaml"
       printf "items:\n  - alpha\n  - beta\n" > "$_file"
       When call yaml_array_items "$_file" ".items"
@@ -151,7 +189,7 @@ Describe 'lib/yaml.sh'
   End
 
   Describe 'yaml_merge()'
-    It 'overlay가 base를 덮어쓴다'
+    It 'allows overlay to override base'
       _base="${TEST_TMPDIR}/base.yaml"
       _overlay="${TEST_TMPDIR}/overlay.yaml"
       printf "a: 1\nb: 2\n" > "$_base"
@@ -162,72 +200,72 @@ Describe 'lib/yaml.sh'
     End
   End
 
-  Describe 'excludes 헬퍼 함수'
+  Describe 'excludes helper functions'
     setup() {
       _file="${TEST_TMPDIR}/excludes.yaml"
       printf 'excludes:\n  - feature-a\nfeatures: {}\n' > "$_file"
     }
     BeforeEach 'setup'
 
-    It 'excludes 목록을 읽는다'
+    It 'reads the excludes list'
       When call yaml_list_excludes "$_file"
       The output should eq "feature-a"
     End
 
-    It 'excludes에 feature를 추가하고 제거한다'
+    It 'adds and removes a feature in excludes'
       yaml_append_exclude "$_file" "feature-b"
       yaml_remove_exclude "$_file" "feature-a"
       When call yaml_list_excludes "$_file"
       The output should eq "feature-b"
     End
 
-    It 'excludes에 feature가 있는지 확인한다'
+    It 'checks whether excludes contains a feature'
       When call yaml_excludes_feature "$_file" "feature-a"
       The status should be success
     End
 
-    It 'excludes가 없으면 빈 배열처럼 처리한다'
+    It 'treats a missing excludes value as an empty array'
       _missing="${TEST_TMPDIR}/missing.yaml"
       echo 'features: {}' > "$_missing"
       When call yaml_validate_excludes "$_missing"
       The status should be success
     End
 
-    It '배열이 아닌 excludes를 거부한다'
+    It 'rejects a non-array excludes value'
       echo 'excludes: feature-a' > "$_file"
       When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
       The status should be failure
-      The stderr should include '문자열 배열'
+      The stderr should include 'array of strings'
       The stderr should include "$_file"
     End
 
-    It '비문자열 excludes 항목을 거부한다'
+    It 'rejects a non-string excludes item'
       printf 'excludes:\n  - 1\n' > "$_file"
       When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
       The status should be failure
-      The stderr should include '비어 있지 않은 문자열'
+      The stderr should include 'non-empty strings'
       The stderr should include 'feature 1'
       The stderr should include "$_file"
     End
 
-    It '빈 excludes 항목을 거부한다'
+    It 'rejects an empty excludes item'
       printf 'excludes:\n  - "   "\n' > "$_file"
       When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
       The status should be failure
-      The stderr should include '비어 있지 않은 문자열'
+      The stderr should include 'non-empty strings'
     End
 
-    It '중복된 excludes 항목을 거부한다'
+    It 'rejects a duplicate excludes item'
       printf 'excludes:\n  - feature-a\n  - feature-a\n' > "$_file"
       When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/yaml.sh'; yaml_validate_excludes '$_file'"
       The status should be failure
-      The stderr should include '중복'
+      The stderr should include 'duplicate'
       The stderr should include 'feature-a'
       The stderr should include "$_file"
     End
   End
 
-  Describe 'feature 헬퍼 함수'
+  Describe 'feature helper functions'
     setup() {
       _file="${TEST_TMPDIR}/feat.yaml"
       cp "${PROJECT_ROOT}/spec/support/fixtures/sample_manifest.yaml" "$_file"
@@ -235,7 +273,7 @@ Describe 'lib/yaml.sh'
     BeforeEach 'setup'
 
     Describe 'yaml_list_features()'
-      It 'feature 키 목록을 반환한다'
+      It 'returns the feature keys'
         When call yaml_list_features "$_file"
         The output should include "base"
         The output should include "custom_emoji"
@@ -244,33 +282,33 @@ Describe 'lib/yaml.sh'
     End
 
     Describe 'yaml_get_feature_name()'
-      It 'feature의 이름을 반환한다'
+      It 'returns the feature name'
         When call yaml_get_feature_name "$_file" "custom_emoji"
-        The output should eq "커스텀 이모지"
+        The output should eq "Custom Emoji"
       End
     End
 
     Describe 'yaml_get_feature_description()'
-      It 'feature의 설명을 반환한다'
+      It 'returns the feature description'
         When call yaml_get_feature_description "$_file" "custom_emoji"
-        The output should eq "이모지 기능 확장"
+        The output should eq "Extended emoji support"
       End
     End
 
     Describe 'yaml_get_feature_dependencies()'
-      It '의존성 목록을 반환한다'
+      It 'returns the dependency list'
         When call yaml_get_feature_dependencies "$_file" "custom_emoji"
         The output should eq "base"
       End
 
-      It '의존성이 없으면 빈 결과를 반환한다'
+      It 'returns an empty result when there are no dependencies'
         When call yaml_get_feature_dependencies "$_file" "theme"
         The status should be success
       End
     End
 
     Describe 'yaml_get_feature_dev_dependencies()'
-      It '개발 의존성 목록을 반환한다'
+      It 'returns the development dependency list'
         _dev_file="${TEST_TMPDIR}/dev-deps.yaml"
         cat > "$_dev_file" <<'EOF'
 features:
@@ -282,7 +320,7 @@ EOF
         The output should eq "dev_base"
       End
 
-      It '개발 의존성이 없으면 빈 결과를 반환한다'
+      It 'returns an empty result when there are no development dependencies'
         When call yaml_get_feature_dev_dependencies "$_file" "theme"
         The status should be success
         The output should eq ""
@@ -290,21 +328,21 @@ EOF
     End
 
     Describe 'yaml_get_inherits()'
-      It 'inherits 값을 반환한다'
+      It 'returns the inherits value'
         _inh="${TEST_TMPDIR}/inh.yaml"
         printf "inherits: \"uri1.0\"\nfeatures: {}\n" > "$_inh"
         When call yaml_get_inherits "$_inh"
         The output should eq "uri1.0"
       End
 
-      It 'inherits가 없으면 빈 문자열을 반환한다'
+      It 'returns an empty string when inherits is absent'
         When call yaml_get_inherits "$_file"
         The output should eq ""
       End
     End
 
     Describe 'yaml_get_features_json()'
-      It 'features를 JSON으로 출력한다'
+      It 'prints features as JSON'
         When call yaml_get_features_json "$_file"
         The output should include "base"
         The output should include "custom_emoji"

@@ -1,9 +1,9 @@
 # uri - bash completion
 # shellcheck shell=bash
-# Bash 3.2 호환을 위해 compgen 결과를 배열로 의도적으로 분할합니다.
+# Intentionally split compgen output into arrays for Bash 3.2 compatibility.
 # shellcheck disable=SC2207
 
-# URI_ROOT 탐색 (manifest.yaml이 있는 디렉터리)
+# Find URI_ROOT, the directory containing manifest.yaml
 _uri_find_root() {
     local dir="$PWD"
     while [[ "$dir" != "/" ]]; do
@@ -16,8 +16,8 @@ _uri_find_root() {
     return 1
 }
 
-# versions/ 하위 mastodon 버전 목록
-_uri_mastodon_versions() {
+# List upstream versions under versions/
+_uri_upstream_versions() {
     local root
     root=$(_uri_find_root) || return
     local versions_dir="$root/versions"
@@ -29,11 +29,11 @@ _uri_mastodon_versions() {
     fi
 }
 
-# versions/<mastodon_ver>/patches/ 하위 uri 버전 목록
-_uri_uri_versions() {
-    local root mastodon_ver="$1"
+# List patchset versions under versions/<upstream_version>/patches/
+_uri_patchset_versions() {
+    local root upstream_version="$1"
     root=$(_uri_find_root) || return
-    local patches_dir="$root/versions/$mastodon_ver/patches"
+    local patches_dir="$root/versions/$upstream_version/patches"
     if [[ -d "$patches_dir" ]]; then
         local d
         for d in "$patches_dir"/*/; do
@@ -42,44 +42,44 @@ _uri_uri_versions() {
     fi
 }
 
-# 최종 활성 feature 목록
+# List final active features
 _uri_features() {
-    command uri list "$1" "$2" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d'
+    command uri list "$1" "$2" 2>/dev/null | sed '/^info: No features\.$/d'
 }
 
-# 현재 manifest가 직접 선언한 feature 목록
+# List features declared directly by the current manifest
 _uri_local_features() {
-    local root mver="$1" uver="$2"
+    local root upstream_version="$1" patchset_version="$2"
     root=$(_uri_find_root) || return
-    local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
+    local manifest="$root/versions/$upstream_version/patches/$patchset_version/manifest.yaml"
     [[ -f "$manifest" ]] || return
     command -v yq &>/dev/null || return
     yq eval '(.features // {}) | keys | .[]' "$manifest" 2>/dev/null
 }
 
-# 현재 manifest가 직접 제외한 feature 목록
+# List features excluded directly by the current manifest
 _uri_excluded_features() {
-    local root mver="$1" uver="$2"
+    local root upstream_version="$1" patchset_version="$2"
     root=$(_uri_find_root) || return
     command -v yq &>/dev/null || return
-    yq eval '(.excludes // []) | .[]' "$root/versions/$mver/patches/$uver/manifest.yaml" 2>/dev/null
+    yq eval '(.excludes // []) | .[]' "$root/versions/$upstream_version/patches/$patchset_version/manifest.yaml" 2>/dev/null
 }
 
-# 활성 feature 중 현재 manifest가 직접 선언하지 않은 feature 목록
+# List active features not declared directly by the current manifest
 _uri_inherited_features() {
-    local mver="$1" uver="$2" feature local_features
-    local_features=$(_uri_local_features "$mver" "$uver")
-    for feature in $(_uri_features "$mver" "$uver"); do
+    local upstream_version="$1" patchset_version="$2" feature local_features
+    local_features=$(_uri_local_features "$upstream_version" "$patchset_version")
+    for feature in $(_uri_features "$upstream_version" "$patchset_version"); do
         if ! printf '%s\n' "$local_features" | grep -Fqx -- "$feature"; then
             echo "$feature"
         fi
     done
 }
 
-# 위치 인자만 카운트 (플래그와 플래그 값 제외)
+# Count only positional arguments, excluding flags and flag values
 _uri_count_positional() {
     local count=0 i skip_next=false
-    # $1 = 플래그 값을 소비하는 옵션 패턴 (예: "--upstream|--name|...")
+    # $1 = pattern for options that consume a value, for example "--upstream|--name|..."
     local value_flags="$1"
     shift
     for i in "$@"; do
@@ -89,7 +89,7 @@ _uri_count_positional() {
         fi
         case "$i" in
             -*)
-                # 값을 소비하는 플래그면 다음 인자 건너뜀
+                # Skip the next argument when the flag consumes a value
                 if [[ -n "$value_flags" ]] && echo "$i" | grep -qE "^($value_flags)$"; then
                     skip_next=true
                 fi
@@ -102,7 +102,7 @@ _uri_count_positional() {
     echo "$count"
 }
 
-# n번째 위치 인자 값 조회
+# Return the nth positional argument
 _uri_get_positional() {
     local target="$1" value_flags="$2"
     shift 2
@@ -129,7 +129,7 @@ _uri_get_positional() {
     done
 }
 
-# 특정 플래그가 이미 입력되었는지 확인
+# Check whether a specific flag is already present
 _uri_has_flag() {
     local flag="$1"
     shift
@@ -152,7 +152,7 @@ _uri() {
         cword=$COMP_CWORD
     fi
 
-    # 서브커맨드 결정 (첫 번째 위치 인자)
+    # Determine the subcommand from the first positional argument
     local subcmd="" i
     for ((i = 1; i < cword; i++)); do
         case "${words[i]}" in
@@ -164,17 +164,17 @@ _uri() {
         esac
     done
 
-    # 서브커맨드 미결정 시
+    # No subcommand determined yet
     if [[ -z "$subcmd" ]]; then
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help -v --version" -- "$cur"))
         else
-            COMPREPLY=($(compgen -W "init add remove exclude include list expand collapse apply graph migrate" -- "$cur"))
+            COMPREPLY=($(compgen -W "init add remove exclude include list expand collapse apply graph" -- "$cur"))
         fi
         return
     fi
 
-    # 서브커맨드별 인자 (words 중 서브커맨드 이후 ~ cur 직전)
+    # Arguments after the subcommand and before cur
     local sub_args=()
     local found=false
     for ((i = 1; i < cword; i++)); do
@@ -216,61 +216,61 @@ _uri() {
         graph)
             _uri_complete_graph "${sub_args[@]}"
             ;;
-        migrate)
-            _uri_complete_migrate "${sub_args[@]}"
-            ;;
     esac
 }
 
-# --- 커맨드별 완성 함수 ---
+# --- Command-specific completion functions ---
 
 _uri_complete_init() {
     local npos
-    npos=$(_uri_count_positional "--upstream" "$@")
+    local vflags="--upstream|--branch-prefix|--committer-name|--committer-email"
+    npos=$(_uri_count_positional "$vflags" "$@")
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help --upstream" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help --upstream --branch-prefix --committer-name --committer-email" -- "$cur"))
         return
     fi
 
-    if [[ "$prev" == "--upstream" ]]; then
-        return  # URL 자유 입력
-    fi
+    case "$prev" in
+        --upstream|--branch-prefix|--committer-name|--committer-email)
+            return
+            ;;
+    esac
 
-    # 위치 인자 1: mastodon_version
+    # Positional argument 1: upstream_version
     if [[ "$npos" -eq 0 ]]; then
-        COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur"))
     fi
 }
 
 _uri_complete_add() {
     local npos
-    npos=$(_uri_count_positional "--name|--description|--dependencies|--dev-dependencies|--inherits" "$@")
+    npos=$(_uri_count_positional "--name|--description|--dependencies|--dev-dependencies|--inherits|--inherits-upstream" "$@")
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help --name --description --dependencies --dev-dependencies --inherits" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help --name --description --dependencies --dev-dependencies --inherits --inherits-upstream" -- "$cur"))
         return
     fi
 
     case "$prev" in
-        --name|--description|--dependencies|--dev-dependencies|--inherits)
-            return  # 자유 입력
+        --name|--description|--dependencies|--dev-dependencies|--inherits|--inherits-upstream)
+            return  # Free-form input
             ;;
     esac
 
-    local vflags="--name|--description|--dependencies|--dev-dependencies|--inherits"
+    local vflags="--name|--description|--dependencies|--dev-dependencies|--inherits|--inherits-upstream"
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "$vflags" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "$vflags" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "$vflags" "$@")
-            uver=$(_uri_get_positional 2 "$vflags" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "$vflags" "$@")
+            patchset_version=$(_uri_get_positional 2 "$vflags" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
     esac
 }
@@ -285,17 +285,17 @@ _uri_complete_exclude() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "" "$@")
-            uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_inherited_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            patchset_version=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_inherited_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
     esac
 }
@@ -310,17 +310,17 @@ _uri_complete_include() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "" "$@")
-            uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_excluded_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            patchset_version=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_excluded_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
     esac
 }
@@ -335,17 +335,17 @@ _uri_complete_remove() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "" "$@")
-            uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_local_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            patchset_version=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_local_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
     esac
 }
@@ -360,17 +360,17 @@ _uri_complete_list() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
     esac
 }
 
 _uri_complete_expand() {
-    # --continue/--abort가 있으면 destination(디렉터리)만 완성
+    # With --continue/--abort, complete only destination directories
     if _uri_has_flag "--continue" "$@" || _uri_has_flag "--abort" "$@"; then
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help --continue --abort" -- "$cur"))
@@ -389,17 +389,17 @@ _uri_complete_expand() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "" "$@")
-            uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            patchset_version=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
         3) _filedir -d ;;
     esac
@@ -415,24 +415,24 @@ _uri_complete_collapse() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2)
-            local mver uver
-            mver=$(_uri_get_positional 1 "" "$@")
-            uver=$(_uri_get_positional 2 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_features "$mver" "$uver")" -- "$cur"))
+            local upstream_version patchset_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            patchset_version=$(_uri_get_positional 2 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_features "$upstream_version" "$patchset_version")" -- "$cur"))
             ;;
         3) _filedir -d ;;
     esac
 }
 
 _uri_complete_apply() {
-    # --continue/--abort가 있으면 destination(디렉터리)만 완성
+    # With --continue/--abort, complete only destination directories
     if _uri_has_flag "--continue" "$@" || _uri_has_flag "--abort" "$@"; then
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help --continue --abort" -- "$cur"))
@@ -451,11 +451,11 @@ _uri_complete_apply() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
         2) _filedir -d ;;
     esac
@@ -482,27 +482,12 @@ _uri_complete_graph() {
     fi
 
     case "$npos" in
-        0) COMPREPLY=($(compgen -W "$(_uri_mastodon_versions)" -- "$cur")) ;;
+        0) COMPREPLY=($(compgen -W "$(_uri_upstream_versions)" -- "$cur")) ;;
         1)
-            local mver
-            mver=$(_uri_get_positional 1 "--format" "$@")
-            COMPREPLY=($(compgen -W "$(_uri_uri_versions "$mver")" -- "$cur"))
+            local upstream_version
+            upstream_version=$(_uri_get_positional 1 "--format" "$@")
+            COMPREPLY=($(compgen -W "$(_uri_patchset_versions "$upstream_version")" -- "$cur"))
             ;;
-    esac
-}
-
-_uri_complete_migrate() {
-    local npos
-    npos=$(_uri_count_positional "" "$@")
-
-    if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
-        return
-    fi
-
-    # 4개 모두 자유 입력 / 디렉터리
-    case "$npos" in
-        0|3) _filedir -d ;;  # old_repo, new_repo
     esac
 }
 

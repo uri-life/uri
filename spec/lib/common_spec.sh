@@ -1,80 +1,105 @@
 #!/bin/sh
-# common_spec.sh - lib/common.sh 테스트
+# common_spec.sh - Tests for lib/common.sh
 
 Describe 'lib/common.sh'
   Include "$LIB_DIR/common.sh"
 
   Describe 'die()'
-    It '에러 메시지를 stderr에 출력하고 종료 코드 1을 반환한다'
-      When run script -e -c ". '$LIB_DIR/common.sh'; die '테스트 에러'"
+    It 'prints an error message to stderr and returns exit status 1'
+      When run script -e -c ". '$LIB_DIR/common.sh'; die 'test error'"
       The status should be failure
-      The stderr should include '테스트 에러'
+      The stderr should include 'test error'
     End
   End
 
   Describe 'warn()'
-    It '경고 메시지를 stderr에 출력한다'
-      When call warn '경고 메시지'
-      The stderr should include '경고 메시지'
+    It 'prints a warning message to stderr'
+      When call warn 'warning message'
+      The stderr should include 'warning message'
     End
   End
 
   Describe 'info()'
-    It '정보 메시지를 stdout에 출력한다'
-      When call info '정보 메시지'
-      The output should include '정보 메시지'
+    It 'prints an informational message to stdout'
+      When call info 'informational message'
+      The output should include 'informational message'
     End
   End
 
   Describe 'success()'
-    It '성공 메시지를 stdout에 출력한다'
-      When call success '성공 메시지'
-      The output should include '성공 메시지'
+    It 'prints a success message to stdout'
+      When call success 'success message'
+      The output should include 'success message'
     End
   End
 
   Describe 'require_cmd()'
-    It '존재하는 명령어는 성공한다'
+    It 'succeeds for an existing command'
       When call require_cmd "sh"
       The status should be success
     End
 
-    It '존재하지 않는 명령어는 실패한다'
+    It 'fails for a nonexistent command'
       When run script -e -c ". '$LIB_DIR/common.sh'; require_cmd 'nonexistent_cmd_xyz'"
       The status should be failure
       The stderr should include 'nonexistent_cmd_xyz'
     End
   End
 
-  Describe 'version_dir()'
-    It 'URI_ROOT 기반으로 버전 디렉터리 경로를 반환한다'
+  Describe 'upstream_version_dir()'
+    It 'returns a version directory path based on URI_ROOT'
       URI_ROOT="/tmp/test"
-      When call version_dir "v4.3.0"
-      The output should eq "/tmp/test/versions/v4.3.0"
+      When call upstream_version_dir "v1.2.3+build"
+      The output should eq "/tmp/test/versions/v1.2.3+build"
     End
   End
 
-  Describe 'uri_version_dir()'
-    It 'URI_ROOT 기반으로 uri 버전 디렉터리 경로를 반환한다'
+  Describe 'patchset_version_dir()'
+    It 'returns a patchset version directory path based on URI_ROOT'
       URI_ROOT="/tmp/test"
-      When call uri_version_dir "v4.3.0" "uri1.0"
-      The output should eq "/tmp/test/versions/v4.3.0/patches/uri1.0"
+      When call patchset_version_dir "v1.2.3+build" "stack-a"
+      The output should eq "/tmp/test/versions/v1.2.3+build/patches/stack-a"
+    End
+  End
+
+  Describe 'validate_identifier()'
+    validate_identifier_safely() {
+      (validate_identifier "$1" "$2")
+    }
+
+    It 'allows a safe identifier containing +._-'
+      When call validate_identifier_safely "version" "v1.2.3+build-1"
+      The status should be success
+    End
+
+    Parameters
+      "slash" "bad/name"
+      "space" "bad name"
+      "double-dot" "bad..name"
+      "lock" "bad.lock"
+      "leading-dot" ".bad"
+      "control" "bad	name"
+    End
+    It 'rejects an unsafe identifier: $1'
+      When call validate_identifier_safely "identifier" "$2"
+      The status should be failure
+      The stderr should include 'Invalid'
     End
   End
 
   Describe 'resolve_path()'
-    It '디렉터리의 절대 경로를 반환한다'
+    It 'returns the absolute path of a directory'
       When call resolve_path "$TEST_TMPDIR"
       The output should eq "$TEST_TMPDIR"
     End
 
-    It '파일의 절대 경로를 반환한다'
+    It 'returns the absolute path of a file'
       touch "${TEST_TMPDIR}/testfile"
       When call resolve_path "${TEST_TMPDIR}/testfile"
       The output should eq "${TEST_TMPDIR}/testfile"
     End
 
-    It '상대 경로를 절대 경로로 변환한다'
+    It 'converts a relative path to an absolute path'
       When call resolve_path "."
       The output should not eq "."
       The output should start with "/"
@@ -82,7 +107,7 @@ Describe 'lib/common.sh'
   End
 
   Describe 'find_uri_root()'
-    It 'manifest.yaml이 있는 디렉터리를 찾는다'
+    It 'finds the directory containing manifest.yaml'
       touch "${TEST_TMPDIR}/manifest.yaml"
       mkdir -p "${TEST_TMPDIR}/subdir"
       cd "${TEST_TMPDIR}/subdir"
@@ -91,7 +116,7 @@ Describe 'lib/common.sh'
       The status should be success
     End
 
-    It 'manifest.yaml이 없으면 실패한다'
+    It 'fails when manifest.yaml does not exist'
       cd "$TEST_TMPDIR"
       When call find_uri_root
       The status should be failure
@@ -99,7 +124,7 @@ Describe 'lib/common.sh'
   End
 
   Describe 'require_uri_root()'
-    It 'manifest.yaml이 있으면 URI_ROOT를 설정한다'
+    It 'sets URI_ROOT when manifest.yaml exists'
       touch "${TEST_TMPDIR}/manifest.yaml"
       cd "$TEST_TMPDIR"
       When call require_uri_root
@@ -109,14 +134,14 @@ Describe 'lib/common.sh'
   End
 
   Describe 'set_uri_root_if_exists()'
-    It 'manifest.yaml이 있으면 성공한다'
+    It 'succeeds when manifest.yaml exists'
       touch "${TEST_TMPDIR}/manifest.yaml"
       cd "$TEST_TMPDIR"
       When call set_uri_root_if_exists
       The status should be success
     End
 
-    It 'manifest.yaml이 없으면 실패하되 die하지 않는다'
+    It 'fails without calling die when manifest.yaml does not exist'
       cd "$TEST_TMPDIR"
       When call set_uri_root_if_exists
       The status should be failure
@@ -124,39 +149,39 @@ Describe 'lib/common.sh'
   End
 
   Describe 'require_file()'
-    It '파일이 존재하면 성공한다'
+    It 'succeeds when the file exists'
       touch "${TEST_TMPDIR}/exists.txt"
       When call require_file "${TEST_TMPDIR}/exists.txt"
       The status should be success
     End
 
-    It '파일이 없으면 die한다'
+    It 'calls die when the file does not exist'
       When run script -e -c ". '$LIB_DIR/common.sh'; require_file '${TEST_TMPDIR}/nofile.txt'"
       The status should be failure
-      The stderr should include "파일을 찾을 수 없습니다"
+      The stderr should include "File not found"
     End
   End
 
   Describe 'require_dir()'
-    It '디렉터리가 존재하면 성공한다'
+    It 'succeeds when the directory exists'
       When call require_dir "$TEST_TMPDIR"
       The status should be success
     End
 
-    It '디렉터리가 없으면 die한다'
+    It 'calls die when the directory does not exist'
       When run script -e -c ". '$LIB_DIR/common.sh'; require_dir '${TEST_TMPDIR}/nodir'"
       The status should be failure
-      The stderr should include "디렉터리를 찾을 수 없습니다"
+      The stderr should include "Directory not found"
     End
   End
 
   Describe 'make_temp() / cleanup_temp()'
-    It '임시 파일을 생성한다'
+    It 'creates a temporary file'
       When call make_temp
       The output should not be blank
     End
 
-    It 'cleanup_temp로 임시 파일을 삭제한다'
+    It 'deletes a temporary file with cleanup_temp'
       _tmpfile=$(mktemp)
       _TEMP_FILES="${_TEMP_FILES} ${_tmpfile}"
       echo "test" > "$_tmpfile"
@@ -165,7 +190,7 @@ Describe 'lib/common.sh'
       The status should be failure
     End
 
-    It '임시 디렉터리를 생성하고 cleanup_temp로 삭제한다'
+    It 'creates a temporary directory and deletes it with cleanup_temp'
       make_temp_dir
       _tmpdir="$_made_temp_dir"
       test -d "$_tmpdir" || return 1

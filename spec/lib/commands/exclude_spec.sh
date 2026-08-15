@@ -1,8 +1,8 @@
 #!/bin/sh
-# exclude_spec.sh - lib/commands/exclude.sh 테스트
+# exclude_spec.sh - Tests for lib/commands/exclude.sh
 
 Describe 'lib/commands/exclude.sh'
-  Skip if "yq가 설치되어 있지 않습니다" has_no_yq
+  Skip if "yq is not installed" has_no_yq
 
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/yaml.sh"
@@ -30,39 +30,39 @@ Describe 'lib/commands/exclude.sh'
   }
 
   Describe 'exclude'
-    It '활성 상속 feature를 제외한다'
+    It 'excludes an active inherited feature'
       cmd_exclude "v4.3.0" "uri1.1" "theme" >/dev/null
       When call yaml_excludes_feature "$CHILD_MANIFEST" "theme"
       The status should be success
     End
 
-    It '상속된 패치 파일을 변경하지 않는다'
+    It 'does not change the inherited patch file'
       _before=$(cksum "$PARENT_THEME_PATCH")
       cmd_exclude "v4.3.0" "uri1.1" "theme" >/dev/null
       When call cksum "$PARENT_THEME_PATCH"
       The output should eq "$_before"
     End
 
-    It '현재 manifest가 선언한 feature를 거부한다'
+    It 'rejects a feature declared by the current manifest'
       When call run_exclusion_command cmd_exclude "v4.3.0" "uri1.1" "extra"
       The status should be failure
       The stderr should include "uri remove"
     End
 
-    It '이미 제외한 feature를 거부한다'
+    It 'rejects a feature that is already excluded'
       cmd_exclude "v4.3.0" "uri1.1" "theme" >/dev/null
       When call run_exclusion_command cmd_exclude "v4.3.0" "uri1.1" "theme"
       The status should be failure
-      The stderr should include "이미 제외"
+      The stderr should include "already excluded"
     End
 
-    It '존재하지 않는 feature를 거부한다'
+    It 'rejects a nonexistent feature'
       When call run_exclusion_command cmd_exclude "v4.3.0" "uri1.1" "missing"
       The status should be failure
-      The stderr should include "활성화된 상속 feature"
+      The stderr should include "active inherited feature"
     End
 
-    It '남은 feature의 의존성을 끊는 제외는 manifest를 변경하지 않는다'
+    It 'does not change the manifest when exclusion would break a remaining feature dependency'
       _manifest_before=$(cksum "$CHILD_MANIFEST")
       _patch_before=$(cksum "$PARENT_THEME_PATCH")
       When call run_exclusion_command cmd_exclude "v4.3.0" "uri1.1" "base"
@@ -74,32 +74,32 @@ Describe 'lib/commands/exclude.sh'
   End
 
   Describe 'include'
-    It '현재 manifest의 제외를 해제한다'
+    It 'removes an exclusion from the current manifest'
       cmd_exclude "v4.3.0" "uri1.1" "theme" >/dev/null
       cmd_include "v4.3.0" "uri1.1" "theme" >/dev/null
       When call yaml_excludes_feature "$CHILD_MANIFEST" "theme"
       The status should be failure
     End
 
-    It '현재 manifest가 직접 제외하지 않은 feature를 거부한다'
+    It 'rejects a feature not directly excluded by the current manifest'
       When call run_exclusion_command cmd_include "v4.3.0" "uri1.1" "theme"
       The status should be failure
-      The stderr should include "현재 manifest에서 제외된 feature가 아닙니다"
+      The stderr should include "not excluded by the current manifest"
     End
 
-    It '조상 manifest의 제외를 해제하지 않는다'
+    It 'does not remove an exclusion from an ancestor manifest'
       yaml_set_raw "$CHILD_MANIFEST" ".excludes" '["theme"]'
       _grandchild_dir="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.2"
       mkdir -p "$_grandchild_dir"
       printf 'inherits: uri1.1\nfeatures: {}\n' > "${_grandchild_dir}/manifest.yaml"
       When call run_exclusion_command cmd_include "v4.3.0" "uri1.2" "theme"
       The status should be failure
-      The stderr should include "현재 manifest에서 제외된 feature가 아닙니다"
+      The stderr should include "not excluded by the current manifest"
     End
 
-    It '해제 후 의존성이 끊기면 manifest를 변경하지 않는다'
+    It 'does not change the manifest when removing an exclusion would break dependencies'
       _parent="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.0/manifest.yaml"
-      yaml_set_raw "$_parent" ".features.dependent" '{"name": "종속", "description": "", "dependencies": ["base"]}'
+      yaml_set_raw "$_parent" ".features.dependent" '{"name": "Dependent", "description": "", "dependencies": ["base"]}'
       yaml_set_raw "$CHILD_MANIFEST" ".features" '{}'
       yaml_set_raw "$CHILD_MANIFEST" ".excludes" '["base", "dependent"]'
       When call run_exclusion_command cmd_include "v4.3.0" "uri1.1" "dependent"
@@ -110,7 +110,7 @@ Describe 'lib/commands/exclude.sh'
   End
 
   Describe 'usage'
-    It 'exclude/include 도움말을 출력한다'
+    It 'prints exclude/include help'
       _exclude=$(exclude_usage)
       _include=$(include_usage)
       When call printf '%s\n%s\n' "$_exclude" "$_include"

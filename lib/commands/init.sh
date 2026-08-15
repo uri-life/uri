@@ -1,108 +1,169 @@
 #!/bin/sh
-# init.sh - init 명령 구현
-# POSIX 호환 셸 스크립트
+# init.sh - init command implementation
+# POSIX-compatible shell script
 
-# init 명령 사용법 출력
 init_usage() {
     cat <<EOF
-사용법: uri init [옵션] [mastodon_version]
+Usage: uri init --upstream URL [options] [upstream_version]
 
-패치 세트를 초기화합니다.
+Initialize a Git patch set. --upstream is required for a new root.
 
-인자:
-  mastodon_version   초기화할 Mastodon 버전 (예: v4.3.2)
-                     생략 시 루트 manifest만 생성
+Arguments:
+  upstream_version       Upstream tag or version (for example, v1.2.3+build)
+                         When omitted, create only the root manifest
 
-옵션:
-  -h, --help         이 도움말을 출력합니다
-  --upstream URL     upstream Git URL (기본: https://github.com/mastodon/mastodon.git)
+Options:
+  -h, --help             Print this help text
+  --upstream URL         upstream Git URL
+  --branch-prefix PREFIX Top-level prefix for generated branches (default: uri)
+  --committer-name NAME  Explicit committer name for applying patches
+  --committer-email EMAIL Explicit committer email for applying patches
 
-예시:
-  uri init                      # 루트 manifest 초기화
-  uri init v4.3.2               # v4.3.2용 패치 세트 구조 생성
+Configuration options are not required when adding only a version to an existing root.
+When provided again, they must exactly match the stored values.
+
+Examples:
+  uri init --upstream https://example.com/project.git
+  uri init --upstream https://example.com/project.git v1.2.3+build
+  uri init v1.2.4
 EOF
 }
 
-# init 명령 메인 함수
 cmd_init() {
-    _upstream="https://github.com/mastodon/mastodon.git"
-    _mastodon_ver=""
+    _init_upstream=""
+    _init_upstream_set=false
+    _init_branch_prefix="uri"
+    _init_branch_prefix_set=false
+    _init_committer_name=""
+    _init_committer_name_set=false
+    _init_committer_email=""
+    _init_committer_email_set=false
+    _init_upstream_version=""
 
-    # 옵션 파싱
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)
                 init_usage
                 exit 0
                 ;;
-            --upstream)
+            --upstream|--branch-prefix|--committer-name|--committer-email)
+                _init_option="$1"
                 shift
-                _upstream="$1"
+                [ $# -gt 0 ] || die "$_init_option requires a value."
+                case "$_init_option" in
+                    --upstream)
+                        _init_upstream="$1"
+                        _init_upstream_set=true
+                        ;;
+                    --branch-prefix)
+                        _init_branch_prefix="$1"
+                        _init_branch_prefix_set=true
+                        ;;
+                    --committer-name)
+                        _init_committer_name="$1"
+                        _init_committer_name_set=true
+                        ;;
+                    --committer-email)
+                        _init_committer_email="$1"
+                        _init_committer_email_set=true
+                        ;;
+                esac
                 ;;
             -*)
-                die "알 수 없는 옵션: $1"
+                die "Unknown option: $1"
                 ;;
             *)
-                if [ -z "$_mastodon_ver" ]; then
-                    _mastodon_ver="$1"
+                if [ -z "$_init_upstream_version" ]; then
+                    _init_upstream_version="$1"
                 else
-                    die "인자가 너무 많습니다: $1"
+                    die "Too many arguments: $1"
                 fi
                 ;;
         esac
         shift
     done
 
-    # 이미 초기화되어 있는지 확인
+    if [ "$_init_committer_name_set" != "$_init_committer_email_set" ]; then
+        die "--committer-name and --committer-email must be specified together."
+    fi
+    if [ "$_init_committer_name_set" = true ] && \
+        { [ -z "$_init_committer_name" ] || [ -z "$_init_committer_email" ]; }; then
+        die "The committer name and email must not be empty."
+    fi
+    if [ -n "$_init_upstream_version" ]; then
+        validate_identifier "upstream_version" "$_init_upstream_version"
+    fi
+    validate_identifier "branch-prefix" "$_init_branch_prefix"
+
     if set_uri_root_if_exists; then
-        if [ -z "$_mastodon_ver" ]; then
-            die "이미 초기화되어 있습니다: ${URI_ROOT}/manifest.yaml"
+        load_uri_config
+        _validate_existing_init_config
+        if [ -z "$_init_upstream_version" ]; then
+            die "Already initialized: ${URI_ROOT}/manifest.yaml"
         fi
-        # 버전 추가 모드로 진행
-        _init_version "$_mastodon_ver"
+        _init_upstream_version_dir "$_init_upstream_version"
         return
     fi
 
-    # 새로 초기화
-    _root="$PWD"
-    _manifest="${_root}/manifest.yaml"
+    [ "$_init_upstream_set" = true ] || die "A new patch set requires --upstream URL."
+    [ -n "$_init_upstream" ] || die "--upstream URL must not be empty."
 
-    # 루트 manifest 생성
-    info "패치 세트를 초기화합니다..."
-    cat > "$_manifest" <<EOF
-# Uri Reconstruction Instrument 패치 세트
-# Mastodon 커스텀 패치 관리
+    _init_root="$PWD"
+    _init_manifest="${_init_root}/manifest.yaml"
+    info "Initializing patch set..."
 
-upstream: ${_upstream}
-EOF
+    if [ "$_init_committer_name_set" = true ]; then
+        URI_INIT_UPSTREAM="$_init_upstream" \
+        URI_INIT_PREFIX="$_init_branch_prefix" \
+        URI_INIT_NAME="$_init_committer_name" \
+        URI_INIT_EMAIL="$_init_committer_email" \
+            yq -n '{"upstream": strenv(URI_INIT_UPSTREAM), "branch-prefix": strenv(URI_INIT_PREFIX), "committer": {"mode": "explicit", "name": strenv(URI_INIT_NAME), "email": strenv(URI_INIT_EMAIL)}}' > "$_init_manifest"
+    else
+        URI_INIT_UPSTREAM="$_init_upstream" URI_INIT_PREFIX="$_init_branch_prefix" \
+            yq -n '{"upstream": strenv(URI_INIT_UPSTREAM), "branch-prefix": strenv(URI_INIT_PREFIX), "committer": {"mode": "repository"}}' > "$_init_manifest"
+    fi
 
-    # versions 디렉터리 생성
-    mkdir -p "${_root}/versions"
+    mkdir -p "${_init_root}/versions"
+    success "Initialized: $_init_manifest"
 
-    success "초기화 완료: $_manifest"
-
-    # mastodon 버전이 지정된 경우 버전 구조도 생성
-    if [ -n "$_mastodon_ver" ]; then
-        URI_ROOT="$_root"
+    if [ -n "$_init_upstream_version" ]; then
+        URI_ROOT="$_init_root"
         export URI_ROOT
-        _init_version "$_mastodon_ver"
+        _init_upstream_version_dir "$_init_upstream_version"
     fi
 }
 
-# 버전 디렉터리 구조 생성 (내부 함수)
-_init_version() {
-    _ver="$1"
-    _ver_dir=$(version_dir "$_ver")
+_validate_existing_init_config() {
+    if [ "$_init_upstream_set" = true ] && [ "$_init_upstream" != "$URI_UPSTREAM" ]; then
+        die "The existing upstream setting cannot be changed."
+    fi
+    if [ "$_init_branch_prefix_set" = true ] && [ "$_init_branch_prefix" != "$URI_BRANCH_PREFIX" ]; then
+        die "The existing branch-prefix setting cannot be changed."
+    fi
+    if [ "$_init_committer_name_set" = true ]; then
+        if [ "$URI_COMMITTER_MODE" != "explicit" ] || \
+            [ "$_init_committer_name" != "$URI_COMMITTER_NAME" ] || \
+            [ "$_init_committer_email" != "$URI_COMMITTER_EMAIL" ]; then
+            die "The existing committer setting cannot be changed."
+        fi
+    fi
+}
 
-    if [ -d "$_ver_dir" ]; then
-        info "버전 디렉터리가 이미 존재합니다: $_ver_dir"
+_init_upstream_version_dir() {
+    _iuv_version="$1"
+    _iuv_dir=$(upstream_version_dir "$_iuv_version")
+
+    if [ -d "$_iuv_dir" ]; then
+        info "Upstream version directory already exists: $_iuv_dir"
         return
     fi
 
-    info "버전 $_ver 구조를 생성합니다..."
+    info "Creating structure for upstream version $_iuv_version..."
+    mkdir -p "${_iuv_dir}/patches"
+    success "Created upstream version structure: $_iuv_dir"
+}
 
-    # 디렉터리 생성
-    mkdir -p "${_ver_dir}/patches"
-
-    success "버전 구조 생성 완료: $_ver_dir"
+# Alias retained for compatibility with legacy internal tests and callers.
+_init_version() {
+    _init_upstream_version_dir "$1"
 }

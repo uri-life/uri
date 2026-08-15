@@ -1,15 +1,15 @@
 #!/bin/sh
 # uri - Uri Reconstruction Instrument CLI
-# Mastodon 인스턴스 패치 세트 관리 도구
-# POSIX 호환 셸 스크립트
+# General-purpose Git patch set management tool
+# POSIX-compatible shell script
 
 set -e
 
-# 스크립트 디렉터리 계산
+# Determine the script directory
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
-# 라이브러리 로드
+# Load libraries
 . "${LIB_DIR}/common.sh"
 . "${LIB_DIR}/yaml.sh"
 . "${LIB_DIR}/git.sh"
@@ -17,7 +17,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/inherit.sh"
 . "${LIB_DIR}/state.sh"
 
-# 명령어 로드
+# Load commands
 . "${LIB_DIR}/commands/init.sh"
 . "${LIB_DIR}/commands/add.sh"
 . "${LIB_DIR}/commands/remove.sh"
@@ -27,79 +27,75 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 . "${LIB_DIR}/commands/collapse.sh"
 . "${LIB_DIR}/commands/apply.sh"
 . "${LIB_DIR}/commands/graph.sh"
-. "${LIB_DIR}/commands/migrate.sh"
 
-# 버전
+# Version
 VERSION="0.1.0"
 
-# 메인 도움말 출력
+# Print the main help text
 usage() {
     cat <<EOF
 uri - Uri Reconstruction Instrument v${VERSION}
 
-우리.인생 Mastodon 인스턴스의 패치 세트를 관리하기 위한 도구입니다.
+A tool for managing versioned Git patch sets by feature.
 
-사용법:
+Usage:
   uri <command> [options]
 
-명령어:
-  init       패치 세트 초기화
-  add        uri 버전 또는 feature 추가
-  remove     Mastodon 버전, uri 버전, 또는 feature 제거
-  exclude    상속된 feature 제외
-  include    현재 버전에서 제외한 feature 포함
-  list       버전, 패치, feature 목록 출력
-  expand     feature를 Mastodon 소스에 적용
-  collapse   Mastodon 소스에서 feature를 패치 파일로 추출
-  apply      uri 버전의 모든 feature를 일괄 적용
-  graph      feature 의존성 그래프 출력
-  migrate    브랜치 기반 패치 세트에서 마이그레이션
+Commands:
+  init       Initialize a patch set
+  add        Add a patchset version or feature
+  remove     Remove an upstream version, patchset version, or feature
+  exclude    Exclude an inherited feature
+  include    Include a feature excluded in the current version
+  list       List versions, patches, or features
+  expand     Apply a feature to the upstream source
+  collapse   Extract a feature from the upstream source into a patch file
+  apply      Apply all features in a patchset version
+  graph      Print the feature dependency graph
 
-전역 옵션:
-  -h, --help       이 도움말을 출력합니다
-  -v, --version    버전 정보를 출력합니다
+Global options:
+  -h, --help       Print this help text
+  -v, --version    Print version information
 
-각 명령어의 상세 도움말:
+Detailed help for each command:
   uri <command> --help
 
-예시:
-  uri init                                          # 패치 세트 초기화
-  uri init v4.3.2                                   # 특정 버전으로 초기화
-  uri add v4.3.2 uri1.23                            # uri 버전 추가
-  uri add v4.3.2 uri1.23 custom_emoji               # feature 추가
-  uri list                                          # Mastodon 버전 목록
-  uri list v4.3.2                                   # uri 패치 목록
-  uri list v4.3.2 uri1.23                           # feature 목록
-  uri expand v4.3.2 uri1.23 custom_emoji /path      # feature 적용
-  uri collapse v4.3.2 uri1.23 custom_emoji /path    # feature 추출
-  uri apply v4.3.2 uri1.23 /path                    # 전체 적용
-  uri graph v4.3.2 uri1.23                           # 의존성 그래프 출력
+Examples:
+  uri init --upstream https://example.com/project.git v1.2.3+build
+  uri add v1.2.3+build stack-a                      # Add a patchset version
+  uri add v1.2.3+build stack-a feature-a            # Add a feature
+  uri list                                          # List upstream versions
+  uri list v1.2.3+build                             # List patchset versions
+  uri expand v1.2.3+build stack-a feature-a         # Apply to an automatic clone
+  uri collapse v1.2.3+build stack-a feature-a /path # Extract a feature
+  uri apply v1.2.3+build stack-a                    # Apply all features to an automatic clone
+  uri graph v1.2.3+build stack-a                    # Print the dependency graph
 EOF
 }
 
-# 버전 출력
+# Print the version
 version() {
     echo "uri version ${VERSION}"
 }
 
-# 의존성 확인
+# Check dependencies
 check_dependencies() {
-    require_cmd "git" "git이 필요합니다. https://git-scm.com/"
-    require_cmd "yq" "yq가 필요합니다. https://github.com/mikefarah/yq"
+    require_cmd "git" "git is required. https://git-scm.com/"
+    require_cmd "yq" "yq is required. https://github.com/mikefarah/yq"
 }
 
-# 메인 함수
+# Main function
 main() {
-    # 의존성 확인
+    # Check dependencies
     check_dependencies
 
-    # 인자가 없으면 도움말 출력
+    # Print help when no arguments are provided
     if [ $# -eq 0 ]; then
         usage
         exit 0
     fi
 
-    # 첫 번째 인자 처리
+    # Process the first argument
     case "$1" in
         -h|--help)
             usage
@@ -149,15 +145,11 @@ main() {
             shift
             cmd_graph "$@"
             ;;
-        migrate)
-            shift
-            cmd_migrate "$@"
-            ;;
         *)
-            die "알 수 없는 명령어: $1. 'uri --help'를 참조하세요."
+            die "Unknown command: $1. See 'uri --help'."
             ;;
     esac
 }
 
-# 메인 실행
+# Run the main function
 main "$@"

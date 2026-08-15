@@ -1,11 +1,11 @@
 #!/bin/sh
-# topsort.sh - 위상 정렬 유틸리티
-# POSIX 호환 셸 스크립트
-# 의존성: 플랫폼별 번들 uritsort
+# topsort.sh - Topological sorting utilities
+# POSIX-compatible shell script
+# Dependency: platform-specific bundled uritsort
 
-# 감지된 플랫폼에 맞는 번들 uritsort 선택
-# 입력: uname -s 값, uname -m 값
-# 출력: _URITSORT_BINARY에 실행 파일 경로 저장
+# Select the bundled uritsort for the detected platform
+# Input: uname -s value, uname -m value
+# Output: store the executable path in _URITSORT_BINARY
 _select_uritsort_binary() {
     _uritsort_os="$1"
     _uritsort_arch="$2"
@@ -18,7 +18,7 @@ _select_uritsort_binary() {
             _uritsort_platform="linux"
             ;;
         *)
-            die "지원하지 않는 uritsort 플랫폼입니다 (감지값: $_uritsort_os/$_uritsort_arch)"
+            die "Unsupported uritsort platform (detected: $_uritsort_os/$_uritsort_arch)"
             ;;
     esac
 
@@ -30,7 +30,7 @@ _select_uritsort_binary() {
             _uritsort_normalized_arch="x86_64"
             ;;
         *)
-            die "지원하지 않는 uritsort 플랫폼입니다 (감지값: $_uritsort_os/$_uritsort_arch)"
+            die "Unsupported uritsort platform (detected: $_uritsort_os/$_uritsort_arch)"
             ;;
     esac
 
@@ -38,14 +38,14 @@ _select_uritsort_binary() {
     _URITSORT_BINARY="${_uritsort_project_root}/libexec/uritsort/${_uritsort_platform}-${_uritsort_normalized_arch}/uritsort"
 
     if [ ! -f "$_URITSORT_BINARY" ]; then
-        die "번들 uritsort 바이너리가 없습니다: $_URITSORT_BINARY (감지값: $_uritsort_os/$_uritsort_arch)"
+        die "Bundled uritsort binary not found: $_URITSORT_BINARY (detected: $_uritsort_os/$_uritsort_arch)"
     fi
     if [ ! -x "$_URITSORT_BINARY" ]; then
-        die "번들 uritsort 바이너리를 실행할 수 없습니다: $_URITSORT_BINARY (감지값: $_uritsort_os/$_uritsort_arch)"
+        die "Bundled uritsort binary is not executable: $_URITSORT_BINARY (detected: $_uritsort_os/$_uritsort_arch)"
     fi
 }
 
-# 기존 edge-pair 그래프를 uritsort의 "노드 의존성..." 형식으로 변환
+# Convert the existing edge-pair graph to uritsort's "node dependency..." format
 _prepare_uritsort_input() {
     _uritsort_edges_file="$1"
     _uritsort_input_file="$2"
@@ -109,48 +109,48 @@ _topsort_file_with_binary() {
     fi
 
     if _uritsort_reports_cycle "$_uritsort_result"; then
-        die "순환 의존성이 발견되었습니다: $_uritsort_result"
+        die "Circular dependency detected: $_uritsort_result"
     fi
-    die "위상 정렬 실패: $_uritsort_result"
+    die "Topological sort failed: $_uritsort_result"
 }
 
-# 번들 uritsort를 사용한 위상 정렬
-# 입력: 간선 쌍이 담긴 파일 (각 줄: "선행_노드 후행_노드")
-# 출력: 선행 노드가 먼저 나오는 정렬된 노드 목록
-# 사용법: topsort_file "/path/to/edges.txt"
+# Topologically sort with the bundled uritsort
+# Input: file containing edge pairs, one "preceding_node following_node" pair per line
+# Output: sorted node list with preceding nodes first
+# Usage: topsort_file "/path/to/edges.txt"
 topsort_file() {
     _edges_file="$1"
     _select_uritsort_binary "$(uname -s)" "$(uname -m)"
     _topsort_file_with_binary "$_edges_file" "$_URITSORT_BINARY"
 }
 
-# manifest에서 feature 의존성 그래프 생성
-# 입력: manifest.yaml 경로, 임시 파일 경로 (간선 저장용)
-# 출력: 간선 파일에 의존성 기록
-# 사용법: build_dependency_graph "manifest.yaml" "/tmp/edges.txt" ["true"|"false"]
+# Build a feature dependency graph from a manifest
+# Input: manifest.yaml path and temporary path for storing edges
+# Output: write dependencies to the edge file
+# Usage: build_dependency_graph "manifest.yaml" "/tmp/edges.txt" ["true"|"false"]
 build_dependency_graph() {
     _manifest="$1"
     _edges_file="$2"
     _include_dev="${3:-false}"
 
-    # 간선 파일 초기화
+    # Initialize the edge file
     : > "$_edges_file"
 
-    # 모든 feature 목록
+    # List all features
     _features=$(yaml_list_features "$_manifest")
 
-    # 각 feature의 의존성을 간선으로 변환
+    # Convert each feature's dependencies into edges
     for _feature in $_features; do
-        # feature 자체를 노드로 추가 (의존성 없어도 포함되도록)
+        # Add the feature itself as a node so features without dependencies are included
         echo "$_feature $_feature" >> "$_edges_file"
 
-        # 의존성 목록 가져오기
+        # Get the dependency list
         _deps=$(yaml_get_feature_dependencies "$_manifest" "$_feature" 2>/dev/null)
 
         for _dep in $_deps; do
-            # 빈 문자열이나 null 무시
+            # Ignore empty strings and null
             if [ -n "$_dep" ] && [ "$_dep" != "null" ]; then
-                # dep가 feature보다 먼저 적용되어야 하므로 dep를 선행으로 기록
+                # Record dep first because it must be applied before feature
                 echo "$_dep $_feature" >> "$_edges_file"
             fi
         done
@@ -159,9 +159,9 @@ build_dependency_graph() {
             _dev_deps=$(yaml_get_feature_dev_dependencies "$_manifest" "$_feature" 2>/dev/null)
 
             for _dep in $_dev_deps; do
-                # 빈 문자열이나 null 무시
+                # Ignore empty strings and null
                 if [ -n "$_dep" ] && [ "$_dep" != "null" ]; then
-                    # dev dependency도 포함 모드에서는 선행 feature로 기록
+                    # In include mode, record development dependencies as preceding features too
                     echo "$_dep $_feature" >> "$_edges_file"
                 fi
             done
@@ -169,25 +169,25 @@ build_dependency_graph() {
     done
 }
 
-# manifest에서 정렬된 feature 목록 반환
-# 사용법: get_sorted_features "manifest.yaml" ["true"|"false"]
-# 출력: 의존성 순서로 정렬된 feature 목록 (의존되는 것이 먼저)
+# Return a sorted feature list from a manifest
+# Usage: get_sorted_features "manifest.yaml" ["true"|"false"]
+# Output: features sorted in dependency order, with dependencies first
 get_sorted_features() {
     _manifest="$1"
     _include_dev="${2:-false}"
 
-    # 임시 파일 생성
+    # Create a temporary file
     _edges_file=$(make_temp)
 
-    # 의존성 그래프 생성
+    # Build the dependency graph
     build_dependency_graph "$_manifest" "$_edges_file" "$_include_dev"
 
-    # 파일이 비어있으면 빈 목록 반환
+    # Return an empty list when the file is empty
     if [ ! -s "$_edges_file" ]; then
         return 0
     fi
 
-    # 위상 정렬 실행 (간선이 "dep feature" 순이므로 출력이 곧 적용 순서)
+    # Topologically sort; edges are "dep feature", so the output is the application order
     topsort_file "$_edges_file"
 }
 
@@ -196,8 +196,8 @@ get_sorted_features_with_dev() {
     get_sorted_features "$_manifest" "true"
 }
 
-# 의존성 그래프를 tree 형태로 출력
-# 사용법: render_dependency_graph_tree "manifest.yaml" ["true"|"false"]
+# Render the dependency graph as a tree
+# Usage: render_dependency_graph_tree "manifest.yaml" ["true"|"false"]
 render_dependency_graph_tree() {
     _manifest="$1"
     _include_dev="${2:-false}"
@@ -266,8 +266,8 @@ render_dependency_graph_tree() {
     ' "$_sorted_file" "$_edges_file"
 }
 
-# 의존성 그래프를 Graphviz DOT 형태로 출력
-# 사용법: render_dependency_graph_dot "manifest.yaml" ["true"|"false"]
+# Render the dependency graph as Graphviz DOT
+# Usage: render_dependency_graph_dot "manifest.yaml" ["true"|"false"]
 render_dependency_graph_dot() {
     _manifest="$1"
     _include_dev="${2:-false}"
@@ -314,8 +314,8 @@ render_dependency_graph_dot() {
     ' "$_sorted_file" "$_edges_file"
 }
 
-# apply용 feature 목록 반환 (dev-dependencies 전용 feature 제외)
-# 사용법: get_sorted_apply_features "manifest.yaml"
+# Return the feature list for apply, excluding development-only features
+# Usage: get_sorted_apply_features "manifest.yaml"
 get_sorted_apply_features() {
     _manifest="$1"
     _all_features=$(yaml_list_features "$_manifest")
@@ -324,7 +324,7 @@ get_sorted_apply_features() {
     _edges_file=$(make_temp)
     _filtered_edges=$(make_temp)
 
-    # dev-dependencies로만 끌려오는 feature 후보와 그 의존성은 apply 루트에서 제외
+    # Exclude candidate features pulled in only by dev-dependencies, and their dependencies, from apply roots
     for _feature in $_all_features; do
         _dev_deps=$(yaml_get_feature_dev_dependencies "$_manifest" "$_feature" 2>/dev/null)
         for _dep in $_dev_deps; do
@@ -334,7 +334,7 @@ get_sorted_apply_features() {
         done
     done
 
-    # 남은 feature를 배포 루트로 보고 일반 dependencies만 재귀 수집
+    # Treat remaining features as deployment roots and recursively collect regular dependencies only
     for _feature in $_all_features; do
         if ! grep -q "^${_feature}$" "$_dev_candidates" 2>/dev/null; then
             _collect_deps "$_manifest" "$_feature" "$_required_file" "false"
@@ -357,37 +357,37 @@ get_sorted_apply_features() {
     fi
 }
 
-# 특정 feature와 그 의존성들만 정렬하여 반환
-# 사용법: get_feature_with_deps "manifest.yaml" "feature_name" ["true"|"false"]
-# 출력: feature와 그 의존성들을 의존성 순서로 정렬
+# Return a sorted list containing a specific feature and its dependencies
+# Usage: get_feature_with_deps "manifest.yaml" "feature_name" ["true"|"false"]
+# Output: the feature and its dependencies in dependency order
 get_feature_with_deps() {
     _manifest="$1"
     _target="$2"
     _include_dev="${3:-false}"
 
-    # 임시 파일들
+    # Temporary files
     _edges_file=$(make_temp)
     _required_file=$(make_temp)
 
-    # 모든 의존성 그래프 생성
+    # Build the full dependency graph
     build_dependency_graph "$_manifest" "$_edges_file" "$_include_dev"
 
-    # 타겟 feature부터 시작하여 재귀적으로 필요한 feature 수집
+    # Recursively collect required features starting from the target feature
     _collect_deps "$_manifest" "$_target" "$_required_file" "$_include_dev"
 
-    # 필요한 feature들만 포함하는 간선 파일 생성
+    # Create an edge file containing only required features
     _filtered_edges=$(make_temp)
     while IFS= read -r _line; do
         _from=$(echo "$_line" | cut -d' ' -f1)
         _to=$(echo "$_line" | cut -d' ' -f2)
 
-        # 두 노드 모두 필요한 목록에 있는 경우만 포함
+        # Include only edges whose two nodes are both required
         if grep -q "^${_from}$" "$_required_file" && grep -q "^${_to}$" "$_required_file"; then
             echo "$_line"
         fi
     done < "$_edges_file" > "$_filtered_edges"
 
-    # 정렬 실행 (간선이 "dep feature" 순이므로 출력이 곧 적용 순서)
+    # Sort; edges are "dep feature", so the output is the application order
     if [ -s "$_filtered_edges" ]; then
         topsort_file "$_filtered_edges"
     fi
@@ -399,22 +399,22 @@ get_feature_with_deps_with_dev() {
     get_feature_with_deps "$_manifest" "$_target" "true"
 }
 
-# 재귀적으로 의존성 수집 (내부 함수)
+# Recursively collect dependencies (internal function)
 _collect_deps() {
     _manifest="$1"
     _feature="$2"
     _output_file="$3"
     _include_dev="${4:-false}"
 
-    # 이미 수집된 경우 스킵
+    # Skip features already collected
     if grep -q "^${_feature}$" "$_output_file" 2>/dev/null; then
         return
     fi
 
-    # 현재 feature 추가
+    # Add the current feature
     echo "$_feature" >> "$_output_file"
 
-    # 의존성 수집
+    # Collect dependencies
     _deps=$(yaml_get_feature_dependencies "$_manifest" "$_feature" 2>/dev/null)
     for _dep in $_deps; do
         if [ -n "$_dep" ] && [ "$_dep" != "null" ]; then
@@ -432,16 +432,16 @@ _collect_deps() {
     fi
 }
 
-# 정렬 결과를 역순으로 변환 (collapse 등에서 사용)
-# 사용법: echo "$sorted_list" | reverse_lines
+# Reverse a sorted result for use by commands such as collapse
+# Usage: echo "$sorted_list" | reverse_lines
 reverse_lines() {
-    # POSIX 호환 방식으로 역순 정렬
-    # tail -r은 BSD 전용이므로 awk 사용
+    # Reverse in a POSIX-compatible way
+    # Use awk because tail -r is BSD-specific
     awk '{a[NR]=$0} END {for(i=NR;i>=1;i--) print a[i]}'
 }
 
-# 순환 의존성 검사만 수행
-# 사용법: check_circular_deps "manifest.yaml" ["true"|"false"]
+# Check only for circular dependencies
+# Usage: check_circular_deps "manifest.yaml" ["true"|"false"]
 check_circular_deps() {
     _manifest="$1"
     _include_dev="${2:-false}"
@@ -462,5 +462,5 @@ check_circular_deps() {
     if _uritsort_reports_cycle "$_uritsort_result"; then
         return 1
     fi
-    die "위상 정렬 실패: $_uritsort_result"
+    die "Topological sort failed: $_uritsort_result"
 }

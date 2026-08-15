@@ -1,7 +1,7 @@
 #compdef uri
 # uri - zsh completion
 
-# URI_ROOT 탐색 (manifest.yaml이 있는 디렉터리)
+# Find URI_ROOT, the directory containing manifest.yaml
 _uri_find_root() {
     local dir="$PWD"
     while [[ "$dir" != "/" ]]; do
@@ -14,8 +14,8 @@ _uri_find_root() {
     return 1
 }
 
-# mastodon 버전 목록
-_uri_mastodon_versions() {
+# List upstream versions
+_uri_upstream_versions() {
     local root
     root=$(_uri_find_root) || return
     local versions_dir="$root/versions"
@@ -26,11 +26,11 @@ _uri_mastodon_versions() {
     fi
 }
 
-# uri 버전 목록
-_uri_uri_versions() {
-    local root mastodon_ver="$1"
+# List patchset versions
+_uri_patchset_versions() {
+    local root upstream_version="$1"
     root=$(_uri_find_root) || return
-    local patches_dir="$root/versions/$mastodon_ver/patches"
+    local patches_dir="$root/versions/$upstream_version/patches"
     if [[ -d "$patches_dir" ]]; then
         local -a vers
         vers=("$patches_dir"/*(N/:t))
@@ -38,19 +38,19 @@ _uri_uri_versions() {
     fi
 }
 
-# 최종 활성 feature 목록
+# List final active features
 _uri_features() {
     local -a feats
-    feats=(${(f)"$(command uri list "$1" "$2" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d')"})
+    feats=(${(f)"$(command uri list "$1" "$2" 2>/dev/null | sed '/^info: No features\.$/d')"})
     compadd -a feats
 }
 
-# 현재 manifest가 직접 선언한 feature 목록
+# List features declared directly by the current manifest
 _uri_local_feature_values() {
-    local root mver="$1" uver="$2"
+    local root upstream_version="$1" patchset_version="$2"
     root=$(_uri_find_root) || return
     (( $+commands[yq] )) || return
-    local manifest="$root/versions/$mver/patches/$uver/manifest.yaml"
+    local manifest="$root/versions/$upstream_version/patches/$patchset_version/manifest.yaml"
     [[ -f "$manifest" ]] || return
     yq eval '(.features // {}) | keys | .[]' "$manifest" 2>/dev/null
 }
@@ -62,20 +62,20 @@ _uri_local_features() {
 }
 
 _uri_excluded_features() {
-    local root mver="$1" uver="$2"
+    local root upstream_version="$1" patchset_version="$2"
     root=$(_uri_find_root) || return
     (( $+commands[yq] )) || return
     local -a feats
-    feats=(${(f)"$(yq eval '(.excludes // []) | .[]' "$root/versions/$mver/patches/$uver/manifest.yaml" 2>/dev/null)"})
+    feats=(${(f)"$(yq eval '(.excludes // []) | .[]' "$root/versions/$upstream_version/patches/$patchset_version/manifest.yaml" 2>/dev/null)"})
     compadd -a feats
 }
 
 _uri_inherited_features() {
-    local mver="$1" uver="$2" feat
+    local upstream_version="$1" patchset_version="$2" feat
     local -a active local_feats inherited
     local -A local_set
-    active=(${(f)"$(command uri list "$mver" "$uver" 2>/dev/null | sed '/^info: feature가 없습니다\.$/d')"})
-    local_feats=(${(f)"$(_uri_local_feature_values "$mver" "$uver")"})
+    active=(${(f)"$(command uri list "$upstream_version" "$patchset_version" 2>/dev/null | sed '/^info: No features\.$/d')"})
+    local_feats=(${(f)"$(_uri_local_feature_values "$upstream_version" "$patchset_version")"})
     for feat in "${local_feats[@]}"; do
         local_set[$feat]=1
     done
@@ -87,7 +87,7 @@ _uri_inherited_features() {
     compadd -a inherited
 }
 
-# 이전 위치 인자 값 추출 (인자 파싱 결과에서)
+# Extract a previous positional argument from the parsed arguments
 _uri_get_prev_positional() {
     local target=$1
     shift
@@ -157,55 +157,60 @@ _uri_has_word() {
 
 # --- init ---
 _uri_init() {
-    local npos=$(_uri_count_pos --upstream)
-    if [[ "$words[CURRENT-1]" == "--upstream" ]]; then
-        return  # URL 자유 입력
-    fi
+    local value_flags=(--upstream --branch-prefix --committer-name --committer-email)
+    local npos=$(_uri_count_pos "${value_flags[@]}")
+    case "$words[CURRENT-1]" in
+        --upstream|--branch-prefix|--committer-name|--committer-email) return ;;
+    esac
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
+            -h:Help
+            --help:Help
             --upstream:upstream\ Git\ URL
+            --branch-prefix:Branch\ prefix
+            --committer-name:Committer\ name
+            --committer-email:Committer\ email
         )'
         return
     fi
     if [[ "$npos" -eq 0 ]]; then
-        _uri_mastodon_versions
+        _uri_upstream_versions
     fi
 }
 
 # --- add ---
 _uri_add() {
-    local npos value_flags=(--name --description --dependencies --dev-dependencies --inherits)
+    local npos value_flags=(--name --description --dependencies --dev-dependencies --inherits --inherits-upstream)
     npos=$(_uri_count_pos "${value_flags[@]}")
 
     case "$words[CURRENT-1]" in
-        --name|--description|--dependencies|--dev-dependencies|--inherits)
+        --name|--description|--dependencies|--dev-dependencies|--inherits|--inherits-upstream)
             return
             ;;
     esac
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
-            --name:feature\ 이름
-            --description:feature\ 설명
-            --dependencies:의존\ feature
-            --dev-dependencies:개발\ 의존\ feature
-            --inherits:상속할\ uri\ 버전
+            -h:Help
+            --help:Help
+            --name:Feature\ name
+            --description:Feature\ description
+            --dependencies:Required\ features
+            --dev-dependencies:Development-only\ dependencies
+            --inherits:Patchset\ version\ to\ inherit
+            --inherits-upstream:Upstream\ version\ to\ inherit
         )'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1 "${value_flags[@]}")
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1 "${value_flags[@]}")
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1 "${value_flags[@]}")
-            local uver=$(_uri_get_prev_positional 2 "${value_flags[@]}")
-            _uri_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1 "${value_flags[@]}")
+            local patchset_version=$(_uri_get_prev_positional 2 "${value_flags[@]}")
+            _uri_features "$upstream_version" "$patchset_version"
             ;;
     esac
 }
@@ -214,19 +219,19 @@ _uri_add() {
 _uri_exclude() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말)'
+        _describe 'option' '(-h:Help --help:Help)'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1)
-            local uver=$(_uri_get_prev_positional 2)
-            _uri_inherited_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            local patchset_version=$(_uri_get_prev_positional 2)
+            _uri_inherited_features "$upstream_version" "$patchset_version"
             ;;
     esac
 }
@@ -235,19 +240,19 @@ _uri_exclude() {
 _uri_include() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말)'
+        _describe 'option' '(-h:Help --help:Help)'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1)
-            local uver=$(_uri_get_prev_positional 2)
-            _uri_excluded_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            local patchset_version=$(_uri_get_prev_positional 2)
+            _uri_excluded_features "$upstream_version" "$patchset_version"
             ;;
     esac
 }
@@ -257,23 +262,23 @@ _uri_remove() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
-            -f:강제\ 삭제
-            --force:강제\ 삭제
+            -h:Help
+            --help:Help
+            -f:Force\ deletion
+            --force:Force\ deletion
         )'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1)
-            local uver=$(_uri_get_prev_positional 2)
-            _uri_local_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            local patchset_version=$(_uri_get_prev_positional 2)
+            _uri_local_features "$upstream_version" "$patchset_version"
             ;;
     esac
 }
@@ -282,28 +287,28 @@ _uri_remove() {
 _uri_list() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말)'
+        _describe 'option' '(-h:Help --help:Help)'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
     esac
 }
 
 # --- expand ---
 _uri_expand() {
-    # --continue/--abort 뒤에는 destination(디렉터리)만
+    # After --continue/--abort, complete only destination directories
     if _uri_has_word "--continue" || _uri_has_word "--abort"; then
         if [[ "$PREFIX" == -* ]]; then
             _describe 'option' '(
-                -h:도움말
-                --help:도움말
-                --continue:충돌\ 해결\ 후\ 계속
-                --abort:작업\ 중단
+                -h:Help
+                --help:Help
+                --continue:Continue\ after\ resolving\ conflicts
+                --abort:Abort\ operation
             )'
         else
             _directories
@@ -314,25 +319,25 @@ _uri_expand() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
-            --continue:충돌\ 해결\ 후\ 계속
-            --abort:작업\ 중단
-            --force:기존\ 브랜치\ 삭제
-            --no-dev:개발\ 의존성\ 제외
+            -h:Help
+            --help:Help
+            --continue:Continue\ after\ resolving\ conflicts
+            --abort:Abort\ operation
+            --force:Delete\ existing\ branch
+            --no-dev:Exclude\ development\ dependencies
         )'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1)
-            local uver=$(_uri_get_prev_positional 2)
-            _uri_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            local patchset_version=$(_uri_get_prev_positional 2)
+            _uri_features "$upstream_version" "$patchset_version"
             ;;
         3) _directories ;;
     esac
@@ -342,19 +347,19 @@ _uri_expand() {
 _uri_collapse() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말 --recursive:의존\ feature까지\ 재귀적으로\ 갱신)'
+        _describe 'option' '(-h:Help --help:Help --recursive:Recursively\ update\ dependent\ features)'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2)
-            local mver=$(_uri_get_prev_positional 1)
-            local uver=$(_uri_get_prev_positional 2)
-            _uri_features "$mver" "$uver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            local patchset_version=$(_uri_get_prev_positional 2)
+            _uri_features "$upstream_version" "$patchset_version"
             ;;
         3) _directories ;;
     esac
@@ -362,14 +367,14 @@ _uri_collapse() {
 
 # --- apply ---
 _uri_apply() {
-    # --continue/--abort 뒤에는 destination(디렉터리)만
+    # After --continue/--abort, complete only destination directories
     if _uri_has_word "--continue" || _uri_has_word "--abort"; then
         if [[ "$PREFIX" == -* ]]; then
             _describe 'option' '(
-                -h:도움말
-                --help:도움말
-                --continue:충돌\ 해결\ 후\ 계속
-                --abort:작업\ 중단
+                -h:Help
+                --help:Help
+                --continue:Continue\ after\ resolving\ conflicts
+                --abort:Abort\ operation
             )'
         else
             _directories
@@ -380,18 +385,18 @@ _uri_apply() {
     local npos=$(_uri_count_pos)
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
-            --continue:충돌\ 해결\ 후\ 계속
-            --abort:작업\ 중단
+            -h:Help
+            --help:Help
+            --continue:Continue\ after\ resolving\ conflicts
+            --abort:Abort\ operation
         )'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1)
+            _uri_patchset_versions "$upstream_version"
             ;;
         2) _directories ;;
     esac
@@ -402,7 +407,7 @@ _uri_graph() {
     local npos=$(_uri_count_pos --format)
 
     if [[ "$words[CURRENT-1]" == "--format" ]]; then
-        _describe 'format' '(tree:tree\ 형식 dot:Graphviz\ DOT\ 형식)'
+        _describe 'format' '(tree:Tree\ format dot:Graphviz\ DOT\ format)'
         return
     fi
     if [[ "$PREFIX" == --format=* ]]; then
@@ -411,61 +416,48 @@ _uri_graph() {
     fi
     if [[ "$PREFIX" == -* ]]; then
         _describe 'option' '(
-            -h:도움말
-            --help:도움말
-            --include-dev:개발\ 의존성\ 포함
-            --format:출력\ 형식
+            -h:Help
+            --help:Help
+            --include-dev:Include\ development\ dependencies
+            --format:Output\ format
         )'
         return
     fi
     case "$npos" in
-        0) _uri_mastodon_versions ;;
+        0) _uri_upstream_versions ;;
         1)
-            local mver=$(_uri_get_prev_positional 1 --format)
-            _uri_uri_versions "$mver"
+            local upstream_version=$(_uri_get_prev_positional 1 --format)
+            _uri_patchset_versions "$upstream_version"
             ;;
     esac
 }
 
-# --- migrate ---
-_uri_migrate() {
-    local npos=$(_uri_count_pos)
-    if [[ "$PREFIX" == -* ]]; then
-        _describe 'option' '(-h:도움말 --help:도움말)'
-        return
-    fi
-    case "$npos" in
-        0|3) _directories ;;  # old_repo, new_repo
-    esac
-}
-
-# --- 메인 디스패처 ---
+# --- Main dispatcher ---
 _uri() {
     local curcontext="$curcontext" state line
     local -A opt_args
 
     _arguments -C \
-        '-h[도움말]' \
-        '--help[도움말]' \
-        '-v[버전 출력]' \
-        '--version[버전 출력]' \
+        '-h[Help]' \
+        '--help[Help]' \
+        '-v[Print version]' \
+        '--version[Print version]' \
         '1:command:->subcmd' \
         '*::arg:->args' && return
 
     case "$state" in
         subcmd)
             _describe 'command' '(
-                init:패치\ 세트\ 초기화
-                add:uri\ 버전\ 또는\ feature\ 추가
-                remove:버전\ 또는\ feature\ 제거
-                exclude:상속된\ feature\ 제외
-                include:현재\ 버전에서\ 제외한\ feature\ 포함
-                list:버전·feature\ 목록\ 출력
-                expand:feature를\ Mastodon\ 소스에\ 적용
-                collapse:패치\ 파일로\ 추출
-                apply:모든\ feature\ 일괄\ 적용
-                graph:feature\ 의존성\ 그래프\ 출력
-                migrate:브랜치\ 기반에서\ 마이그레이션
+                init:Initialize\ a\ patch\ set
+                add:Add\ a\ patchset\ version\ or\ feature
+                remove:Remove\ a\ version\ or\ feature
+                exclude:Exclude\ an\ inherited\ feature
+                include:Include\ a\ feature\ excluded\ in\ the\ current\ version
+                list:List\ versions\ or\ features
+                expand:Apply\ a\ feature\ to\ the\ upstream\ source
+                collapse:Extract\ a\ patch\ file
+                apply:Apply\ all\ features
+                graph:Print\ the\ feature\ dependency\ graph
             )'
             ;;
         args)
@@ -480,7 +472,6 @@ _uri() {
                 collapse) _uri_collapse ;;
                 apply)    _uri_apply ;;
                 graph)    _uri_graph ;;
-                migrate)  _uri_migrate ;;
             esac
             ;;
     esac

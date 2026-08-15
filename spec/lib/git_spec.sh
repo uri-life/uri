@@ -1,28 +1,51 @@
 #!/bin/sh
-# git_spec.sh - lib/git.sh 테스트
+# git_spec.sh - Tests for lib/git.sh
 
 Describe 'lib/git.sh'
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/git.sh"
 
-  Describe '순수 문자열 함수'
-    Describe 'uri_branch_name()'
-      It 'uri feature 브랜치 이름을 생성한다'
-        When call uri_branch_name "v4.3.0" "uri1.0" "custom_emoji"
-        The output should eq "uri/v4.3.0/uri1.0/custom_emoji"
+  Describe 'pure string functions'
+    Describe 'feature_branch_name()'
+      It 'generates a feature branch name with the configured prefix'
+        URI_BRANCH_PREFIX="custom"
+        When call feature_branch_name "v1.2.3+build" "stack-a" "custom_emoji"
+        The output should eq "custom/v1.2.3+build/stack-a/custom_emoji"
       End
     End
 
-    Describe 'uri_version_branch_name()'
-      It 'uri 버전 브랜치 이름을 생성한다'
-        When call uri_version_branch_name "v4.3.0" "uri1.0"
-        The output should eq "uri/v4.3.0/uri1.0"
+    Describe 'patchset_branch_name()'
+      It 'generates a patchset branch name with the default prefix'
+        unset URI_BRANCH_PREFIX
+        When call patchset_branch_name "v1.2.3+build" "stack-a"
+        The output should eq "uri/v1.2.3+build/stack-a"
+      End
+    End
+
+    Describe 'normalize_git_url()'
+      It 'normalizes SSH and HTTPS forms to the same remote'
+        When call normalize_git_url "git@GitHub.COM:org/Repo.git"
+        The output should eq "remote:github.com/org/Repo"
+      End
+
+      It 'removes credentials and the default port'
+        When call normalize_git_url "https://user:secret@GitHub.COM:443/org/Repo.git/"
+        The output should eq "remote:github.com/org/Repo"
+      End
+
+      It 'normalizes a relative local path and file URL to a canonical path'
+        URI_ROOT="$TEST_TMPDIR"
+        mkdir -p "$TEST_TMPDIR/source.git"
+        _canonical_source=$(cd "$TEST_TMPDIR/source.git" && pwd -P)
+        _canonical_source=${_canonical_source%.git}
+        When call normalize_git_url "file://$TEST_TMPDIR/source.git"
+        The output should eq "local:$_canonical_source"
       End
     End
   End
 
-  Describe 'Git 리포지토리 함수'
-    Skip if "git이 설치되어 있지 않습니다" has_no_git
+  Describe 'Git repository functions'
+    Skip if "git is not installed" has_no_git
 
     setup_repo() {
       REPO_DIR="${TEST_TMPDIR}/repo"
@@ -30,33 +53,89 @@ Describe 'lib/git.sh'
     }
     BeforeEach 'setup_repo'
 
+    Describe 'resolve_committer_identity()'
+      It 'uses the target repository identity in repository mode'
+        URI_COMMITTER_MODE="repository"
+        When call resolve_committer_identity "$REPO_DIR"
+        The variable URI_GIT_NAME should eq "Test"
+        The variable URI_GIT_EMAIL should eq "test@example.com"
+      End
+
+      It 'uses the manifest identity in explicit mode'
+        URI_COMMITTER_MODE="explicit"
+        URI_COMMITTER_NAME="Patch Bot"
+        URI_COMMITTER_EMAIL="patch@example.com"
+        When call resolve_committer_identity "$REPO_DIR"
+        The variable URI_GIT_NAME should eq "Patch Bot"
+        The variable URI_GIT_EMAIL should eq "patch@example.com"
+      End
+    End
+
+    Describe 'git_validate_origin()'
+      validate_origin_safely() {
+        (git_validate_origin "$1")
+      }
+
+      It 'accepts an HTTPS manifest and SCP origin for the same repository'
+        URI_UPSTREAM="https://github.com/mastodon/mastodon.git"
+        git -C "$REPO_DIR" remote set-url origin "git@GitHub.COM:mastodon/mastodon.git"
+        When call git_validate_origin "$REPO_DIR"
+        The status should be success
+      End
+
+      It 'compares a relative upstream and file origin against the manifest root'
+        URI_ROOT="$TEST_TMPDIR"
+        mkdir -p "$TEST_TMPDIR/local-source.git"
+        URI_UPSTREAM="./local-source.git"
+        git -C "$REPO_DIR" remote set-url origin "file://$TEST_TMPDIR/local-source.git"
+        When call git_validate_origin "$REPO_DIR"
+        The status should be success
+      End
+
+      It 'rejects a missing origin'
+        URI_UPSTREAM="https://github.com/mastodon/mastodon.git"
+        git -C "$REPO_DIR" remote remove origin
+        When call validate_origin_safely "$REPO_DIR"
+        The status should be failure
+        The stderr should include 'no origin remote'
+      End
+
+      It 'rejects a repository path case mismatch'
+        URI_UPSTREAM="https://github.com/Org/Repo.git"
+        git -C "$REPO_DIR" remote set-url origin "https://github.com/org/repo.git"
+        When call validate_origin_safely "$REPO_DIR"
+        The status should be failure
+        The stderr should include 'does not match'
+      End
+    End
+
     Describe 'git_is_repo()'
-      It 'Git 리포지토리이면 true를 반환한다'
+      It 'returns true for a Git repository'
         When call git_is_repo "$REPO_DIR"
         The status should be success
       End
 
-      It 'Git 리포지토리가 아니면 false를 반환한다'
+      It 'returns false for a non-Git directory'
         When call git_is_repo "$TEST_TMPDIR"
         The status should be failure
       End
     End
 
     Describe 'git_require_repo()'
-      It 'Git 리포지토리가 아니면 die한다'
+      It 'calls die for a non-Git directory'
         When run script -e -c ". '$LIB_DIR/common.sh'; . '$LIB_DIR/git.sh'; git_require_repo '$TEST_TMPDIR'"
         The status should be failure
-        The stderr should include 'Git 리포지토리가 아닙니다'
+        The stderr should include 'is not a Git repository'
       End
     End
 
     Describe 'git_is_clean()'
-      It '깨끗한 워킹 트리는 true를 반환한다'
+      It 'returns true for a clean working tree'
         When call git_is_clean "$REPO_DIR"
         The status should be success
       End
 
-      It '변경 사항이 있으면 false를 반환한다'
+      It 'returns false when changes exist'
         echo "modified" >> "${REPO_DIR}/README.md"
         When call git_is_clean "$REPO_DIR"
         The status should be failure
@@ -64,14 +143,14 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_ensure_clean()'
-      It '깨끗하면 성공한다'
+      It 'succeeds when clean'
         When call git_ensure_clean "$REPO_DIR"
         The status should be success
       End
     End
 
     Describe 'git_create_branch() / git_branch_exists()'
-      It '브랜치를 생성하고 확인할 수 있다'
+      It 'creates and verifies a branch'
         git_create_branch "$REPO_DIR" "test-branch"
         When call git_branch_exists "$REPO_DIR" "test-branch"
         The status should be success
@@ -79,13 +158,13 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_create_branch_at()'
-      It '체크아웃 없이 브랜치를 생성한다'
+      It 'creates a branch without checking it out'
         git_create_branch_at "$REPO_DIR" "at-branch"
         When call git_current_branch "$REPO_DIR"
         The output should eq "main"
       End
 
-      It '생성된 브랜치가 존재한다'
+      It 'finds the created branch'
         git_create_branch_at "$REPO_DIR" "at-branch2"
         When call git_branch_exists "$REPO_DIR" "at-branch2"
         The status should be success
@@ -93,7 +172,7 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_checkout_branch()'
-      It '브랜치로 체크아웃할 수 있다'
+      It 'checks out a branch'
         git_create_branch_at "$REPO_DIR" "switch-branch"
         git_checkout_branch "$REPO_DIR" "switch-branch"
         When call git_current_branch "$REPO_DIR"
@@ -102,14 +181,14 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_current_branch()'
-      It '현재 브랜치명을 반환한다'
+      It 'returns the current branch name'
         When call git_current_branch "$REPO_DIR"
         The output should eq "main"
       End
     End
 
     Describe 'git_current_commit()'
-      It '커밋 해시를 반환한다'
+      It 'returns the commit hash'
         When call git_current_commit "$REPO_DIR"
         The output should match pattern "[0-9a-f]*"
         The length of output should eq 40
@@ -117,14 +196,14 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_branch_exists()'
-      It '존재하지 않는 브랜치는 false를 반환한다'
+      It 'returns false for a nonexistent branch'
         When call git_branch_exists "$REPO_DIR" "nonexistent"
         The status should be failure
       End
     End
 
     Describe 'git_detach_head()'
-      It 'HEAD를 detach한다'
+      It 'detaches HEAD'
         git_create_branch "$REPO_DIR" "detach-test"
         git_detach_head "$REPO_DIR"
         When call git_current_branch "$REPO_DIR"
@@ -133,7 +212,7 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_delete_branch()'
-      It '브랜치를 삭제할 수 있다'
+      It 'deletes a branch'
         git_create_branch_at "$REPO_DIR" "del-branch"
         git_delete_branch "$REPO_DIR" "del-branch"
         When call git_branch_exists "$REPO_DIR" "del-branch"
@@ -142,8 +221,8 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_commit_count()'
-      It '커밋 범위의 커밋 수를 반환한다'
-        # main에 추가 커밋 생성
+      It 'returns the number of commits in a range'
+        # Create an additional commit on main
         echo "extra" > "${REPO_DIR}/extra.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
         git -C "$REPO_DIR" commit -m "second" >/dev/null 2>&1
@@ -154,7 +233,7 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_is_ancestor()'
-      It '선조 커밋이면 true를 반환한다'
+      It 'returns true for an ancestor commit'
         _first=$(git -C "$REPO_DIR" rev-list --max-parents=0 HEAD)
         echo "descendant" > "${REPO_DIR}/descendant.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
@@ -163,7 +242,7 @@ Describe 'lib/git.sh'
         The status should be success
       End
 
-      It '선조가 아니면 false를 반환한다'
+      It 'returns false for a non-ancestor commit'
         git_create_branch_at "$REPO_DIR" "side" "HEAD"
         echo "main" > "${REPO_DIR}/main.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
@@ -178,12 +257,12 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_has_diff()'
-      It '동일한 ref는 diff가 없다'
+      It 'finds no diff between identical refs'
         When call git_has_diff "$REPO_DIR" "HEAD" "HEAD"
         The status should be failure
       End
 
-      It '다른 ref는 diff가 있다'
+      It 'finds a diff between different refs'
         echo "change" > "${REPO_DIR}/new.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
         git -C "$REPO_DIR" commit -m "change" >/dev/null 2>&1
@@ -194,15 +273,15 @@ Describe 'lib/git.sh'
     End
 
     Describe 'git_am_in_progress()'
-      It 'rebase-apply가 없으면 false를 반환한다'
+      It 'returns false when rebase-apply does not exist'
         When call git_am_in_progress "$REPO_DIR"
         The status should be failure
       End
     End
 
     Describe 'git_format_patch()'
-      It '패치를 추출하고 From 해시를 0-padding한다'
-        # 커밋 추가
+      It 'extracts a patch and zero-pads the From hash'
+        # Add a commit
         echo "patch-content" > "${REPO_DIR}/patched.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
         git -C "$REPO_DIR" commit -m "test patch" >/dev/null 2>&1
@@ -211,14 +290,14 @@ Describe 'lib/git.sh'
         When call git_format_patch "$REPO_DIR" "${_first}..HEAD" "$_output"
         The path "$_output" should be exist
         The contents of file "$_output" should include "patch-content"
-        # From 라인의 해시가 0으로 대체되었는지 확인
+        # Check that the hash in the From line was replaced with zeros
         The contents of file "$_output" should match pattern "*From 0000000*"
       End
     End
 
     Describe 'git_am()'
-      It '패치를 적용할 수 있다'
-        # 기본 리포에서 패치 생성
+      It 'applies a patch'
+        # Create a patch in the base repository
         echo "am-test" > "${REPO_DIR}/am-test.txt"
         git -C "$REPO_DIR" add . >/dev/null 2>&1
         git -C "$REPO_DIR" commit -m "am test commit" >/dev/null 2>&1
@@ -226,7 +305,7 @@ Describe 'lib/git.sh'
         _patch="${TEST_TMPDIR}/am-test.patch"
         git -C "$REPO_DIR" format-patch --stdout "${_first}..HEAD" > "$_patch"
 
-        # 다른 리포에 적용
+        # Apply it to another repository
         TARGET="${TEST_TMPDIR}/target"
         create_test_git_repo "$TARGET"
         When call git_am "$TARGET" "$_patch"

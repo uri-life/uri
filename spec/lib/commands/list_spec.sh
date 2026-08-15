@@ -1,8 +1,8 @@
 #!/bin/sh
-# list_spec.sh - lib/commands/list.sh 테스트
+# list_spec.sh - Tests for lib/commands/list.sh
 
 Describe 'lib/commands/list.sh'
-  Skip if "yq가 설치되어 있지 않습니다" has_no_yq
+  Skip if "yq is not installed" has_no_yq
 
   Include "$LIB_DIR/common.sh"
   Include "$LIB_DIR/yaml.sh"
@@ -16,22 +16,22 @@ Describe 'lib/commands/list.sh'
 
   setup_patchset() {
     cd "$TEST_TMPDIR"
-    cmd_init "v4.3.0" >/dev/null 2>&1
+    cmd_init --upstream "https://github.com/mastodon/mastodon.git" "v4.3.0" >/dev/null 2>&1
     URI_ROOT="$TEST_TMPDIR"
     export URI_ROOT
     cmd_add "v4.3.0" "uri1.0" >/dev/null 2>&1 || true
-    cmd_add "v4.3.0" "uri1.0" "base" --name "기본" >/dev/null 2>&1 || true
-    cmd_add "v4.3.0" "uri1.0" "theme" --name "테마" >/dev/null 2>&1 || true
+    cmd_add "v4.3.0" "uri1.0" "base" --name "Base" >/dev/null 2>&1 || true
+    cmd_add "v4.3.0" "uri1.0" "theme" --name "Theme" >/dev/null 2>&1 || true
   }
   BeforeEach 'setup_patchset'
 
-  Describe 'Mastodon 버전 목록'
-    It '버전 목록을 출력한다'
+  Describe 'upstream version list'
+    It 'prints the version list'
       When call cmd_list
       The output should include "v4.3.0"
     End
 
-    It '여러 버전이 있으면 모두 출력한다'
+    It 'prints all available versions'
       cmd_init "v4.4.0" >/dev/null 2>&1
       When call cmd_list
       The output should include "v4.3.0"
@@ -39,21 +39,35 @@ Describe 'lib/commands/list.sh'
     End
   End
 
-  Describe 'uri 패치 목록'
-    It 'uri 버전 목록을 출력한다'
+  Describe 'patchset list'
+    It 'prints the patchset version list'
       When call cmd_list "v4.3.0"
       The output should include "uri1.0"
     End
+
+    It 'prints a patchset without a uri prefix'
+      cmd_add "v4.3.0" "stack-a" >/dev/null
+      When call cmd_list "v4.3.0"
+      The output should include "stack-a"
+    End
+
+    It 'does not print an invalid patchset directory'
+      mkdir -p "$TEST_TMPDIR/versions/v4.3.0/patches/bad name"
+      echo 'features: {}' > "$TEST_TMPDIR/versions/v4.3.0/patches/bad name/manifest.yaml"
+      When call cmd_list "v4.3.0"
+      The output should not include "bad name"
+      The status should be success
+    End
   End
 
-  Describe 'feature 목록'
-    It 'feature 목록을 출력한다'
+  Describe 'feature list'
+    It 'prints the feature list'
       When call cmd_list "v4.3.0" "uri1.0"
       The output should include "base"
       The output should include "theme"
     End
 
-    It '상속을 해석한 활성 feature만 출력한다'
+    It 'prints only active features after resolving inheritance'
       create_test_inherited_patchset "$TEST_TMPDIR"
       _manifest="${TEST_TMPDIR}/versions/v4.3.0/patches/uri1.1/manifest.yaml"
       yaml_set_raw "$_manifest" ".excludes" '["theme"]'
@@ -65,9 +79,9 @@ Describe 'lib/commands/list.sh'
   End
 
   Describe 'list_usage()'
-    It '도움말을 출력한다'
+    It 'prints help'
       When call list_usage
-      The output should include "사용법"
+      The output should include "Usage"
       The output should include "uri list"
     End
   End

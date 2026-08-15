@@ -1,13 +1,13 @@
 #!/bin/sh
-# state.sh - 작업 상태 관리 유틸리티
-# POSIX 호환 셸 스크립트
-# expand/collapse 중 충돌 발생 시 상태 저장 및 복원
+# state.sh - Operation state management utilities
+# POSIX-compatible shell script
+# Save and restore state when conflicts occur during expand/collapse
 
-# 상태 파일 디렉터리 (대상 리포지토리 밖에 저장)
+# State file directory, stored outside the target repository
 STATE_DIR="${URI_STATE_DIR:-${TMPDIR:-/tmp}/uri/state}"
 
-# 상태 키 생성을 위한 해시
-# 사용법: state_hash "input"
+# Hash used to generate a state key
+# Usage: state_hash "input"
 state_hash() {
     _input="$1"
 
@@ -20,15 +20,15 @@ state_hash() {
     fi
 }
 
-# 상태 디렉터리 생성
+# Create the state directory
 _state_ensure_dir() {
     if [ ! -d "$STATE_DIR" ]; then
-        mkdir -p "$STATE_DIR" || die "상태 디렉터리 생성 실패: $STATE_DIR"
+        mkdir -p "$STATE_DIR" || die "Failed to create state directory: $STATE_DIR"
         chmod 700 "$STATE_DIR" 2>/dev/null || true
     fi
 }
 
-# 상태 컨텍스트용 경로 해석
+# Resolve a path for state context
 _state_resolve_repo() {
     _repo="$1"
     resolve_path "$_repo"
@@ -44,8 +44,8 @@ _state_resolve_uri_root() {
     fi
 }
 
-# 상태 파일 전체 경로 반환
-# 사용법: state_file "/path/to/repo"
+# Return the full state file path
+# Usage: state_file "/path/to/repo"
 state_file() {
     _repo="$1"
     _repo_path=$(_state_resolve_repo "$_repo")
@@ -57,7 +57,7 @@ ${_operation}")
     echo "${STATE_DIR}/${_hash}.state"
 }
 
-# 상태 파일이 요청한 리포지토리용인지 확인
+# Check whether a state file belongs to the requested repository
 _state_file_matches_repo() {
     _repo="$1"
     _state_file="$2"
@@ -77,7 +77,7 @@ _state_ensure_file() {
 
     if [ -f "$_state_file" ]; then
         if ! _state_file_matches_repo "$_repo" "$_state_file"; then
-            die "상태 파일 충돌이 감지되었습니다: $_state_file"
+            die "State file collision detected: $_state_file"
         fi
     else
         {
@@ -90,27 +90,27 @@ _state_ensure_file() {
     echo "$_state_file"
 }
 
-# 상태 저장
-# 사용법: state_save "/path/to/repo" "key" "value"
+# Save state
+# Usage: state_save "/path/to/repo" "key" "value"
 state_save() {
     _repo="$1"
     _key="$2"
     _value="$3"
     _state_file=$(_state_ensure_file "$_repo")
 
-    # 기존 키가 있으면 제거
+    # Remove an existing key
     if grep -q "^${_key}=" "$_state_file" 2>/dev/null; then
         _tmp=$(make_temp)
         grep -v "^${_key}=" "$_state_file" > "$_tmp"
         mv "$_tmp" "$_state_file"
     fi
 
-    # 새 값 추가
+    # Add the new value
     echo "${_key}=${_value}" >> "$_state_file"
 }
 
-# 상태 읽기
-# 사용법: state_get "/path/to/repo" "key"
+# Read state
+# Usage: state_get "/path/to/repo" "key"
 state_get() {
     _repo="$1"
     _key="$2"
@@ -121,8 +121,8 @@ state_get() {
     fi
 }
 
-# 특정 상태 키 삭제
-# 사용법: state_delete "/path/to/repo" "key"
+# Delete a specific state key
+# Usage: state_delete "/path/to/repo" "key"
 state_delete() {
     _repo="$1"
     _key="$2"
@@ -135,8 +135,8 @@ state_delete() {
     fi
 }
 
-# 상태 파일 전체 삭제
-# 사용법: state_clear "/path/to/repo"
+# Delete the entire state file
+# Usage: state_clear "/path/to/repo"
 state_clear() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
@@ -145,73 +145,104 @@ state_clear() {
     fi
 }
 
-# 상태 파일 존재 확인
-# 사용법: if state_exists "/path/to/repo"; then ...
+# Check whether a state file exists
+# Usage: if state_exists "/path/to/repo"; then ...
 state_exists() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
     _state_file_matches_repo "$_repo" "$_state_file"
 }
 
-# 진행 중인 작업 확인
-# 사용법: if state_in_progress "/path/to/repo"; then ...
+# Check for an operation in progress
+# Usage: if state_in_progress "/path/to/repo"; then ...
 state_in_progress() {
     _repo="$1"
     _operation=$(state_get "$_repo" "operation")
     [ -n "$_operation" ]
 }
 
-# expand 상태 저장
-# 사용법: state_save_expand "/path/to/repo" "v4.3.2" "uri1.23" "feature1 feature2 feature3" "1"
+# Save expand state
+# Usage: state_save_expand "/path/to/repo" "v4.3.2" "uri1.23" "feature1 feature2 feature3" "1"
 state_save_expand() {
     _repo="$1"
-    _mastodon_ver="$2"
-    _uri_ver="$3"
-    _features="$4"      # 공백 구분 feature 목록
-    _current_index="$5" # 현재 처리 중인 feature 인덱스 (0부터)
+    _upstream_version="$2"
+    _patchset_version="$3"
+    _features="$4"      # Space-separated feature list
+    _current_index="$5" # Index of the feature currently being processed, starting at 0
 
     state_save "$_repo" "operation" "expand"
-    state_save "$_repo" "mastodon_version" "$_mastodon_ver"
-    state_save "$_repo" "uri_version" "$_uri_ver"
+    state_save "$_repo" "upstream_version" "$_upstream_version"
+    state_save "$_repo" "patchset_version" "$_patchset_version"
+    state_save_operation_config "$_repo"
     state_save "$_repo" "features" "$_features"
     state_save "$_repo" "current_index" "$_current_index"
     state_save "$_repo" "start_commit" "$(git_current_commit "$_repo")"
 }
 
-# collapse 상태 저장
-# 사용법: state_save_collapse "/path/to/repo" "v4.3.2" "uri1.23" "feature1 feature2" "1"
+# Save collapse state
+# Usage: state_save_collapse "/path/to/repo" "v4.3.2" "uri1.23" "feature1 feature2" "1"
 state_save_collapse() {
     _repo="$1"
-    _mastodon_ver="$2"
-    _uri_ver="$3"
+    _upstream_version="$2"
+    _patchset_version="$3"
     _features="$4"
     _current_index="$5"
 
     state_save "$_repo" "operation" "collapse"
-    state_save "$_repo" "mastodon_version" "$_mastodon_ver"
-    state_save "$_repo" "uri_version" "$_uri_ver"
+    state_save "$_repo" "upstream_version" "$_upstream_version"
+    state_save "$_repo" "patchset_version" "$_patchset_version"
+    state_save_operation_config "$_repo"
     state_save "$_repo" "features" "$_features"
     state_save "$_repo" "current_index" "$_current_index"
 }
 
-# 현재 작업 상태 출력 (사용자 안내용)
-# 사용법: state_show "/path/to/repo"
+state_save_operation_config() {
+    _soc_repo="$1"
+    state_save "$_soc_repo" "branch_prefix" "${URI_BRANCH_PREFIX:-uri}"
+    state_save "$_soc_repo" "committer_name" "${URI_GIT_NAME:-URI}"
+    state_save "$_soc_repo" "committer_email" "${URI_GIT_EMAIL:-uri@uri.life}"
+}
+
+state_get_upstream_version() {
+    _sgu_repo="$1"
+    _sgu_value=$(state_get "$_sgu_repo" "upstream_version")
+    [ -n "$_sgu_value" ] || _sgu_value=$(state_get "$_sgu_repo" "mastodon_version")
+    echo "$_sgu_value"
+}
+
+state_get_patchset_version() {
+    _sgp_repo="$1"
+    _sgp_value=$(state_get "$_sgp_repo" "patchset_version")
+    [ -n "$_sgp_value" ] || _sgp_value=$(state_get "$_sgp_repo" "uri_version")
+    echo "$_sgp_value"
+}
+
+state_restore_operation_config() {
+    _src_repo="$1"
+    URI_BRANCH_PREFIX=$(state_get "$_src_repo" "branch_prefix")
+    [ -n "$URI_BRANCH_PREFIX" ] || URI_BRANCH_PREFIX="uri"
+    export URI_BRANCH_PREFIX
+    restore_committer_identity_from_state "$_src_repo"
+}
+
+# Print the current operation state for the user
+# Usage: state_show "/path/to/repo"
 state_show() {
     _repo="$1"
     _state_file=$(state_file "$_repo")
 
     if ! _state_file_matches_repo "$_repo" "$_state_file"; then
-        info "진행 중인 작업이 없습니다."
+        info "No operation is in progress."
         return 1
     fi
 
     _operation=$(state_get "$_repo" "operation")
-    _mastodon_ver=$(state_get "$_repo" "mastodon_version")
-    _uri_ver=$(state_get "$_repo" "uri_version")
+    _upstream_version=$(state_get_upstream_version "$_repo")
+    _patchset_version=$(state_get_patchset_version "$_repo")
     _features=$(state_get "$_repo" "features")
     _current_index=$(state_get "$_repo" "current_index")
 
-    # 현재 feature 계산
+    # Determine the current feature
     _count=0
     _current_feature=""
     for _f in $_features; do
@@ -222,19 +253,19 @@ state_show() {
         _count=$((_count + 1))
     done
 
-    echo "진행 중인 작업:"
-    echo "  작업: $_operation"
-    echo "  Mastodon 버전: $_mastodon_ver"
-    echo "  URI 버전: $_uri_ver"
-    echo "  현재 feature: $_current_feature ($((_current_index + 1))/$(echo $_features | wc -w | tr -d ' '))"
+    echo "Operation in progress:"
+    echo "  Operation: $_operation"
+    echo "  Upstream version: $_upstream_version"
+    echo "  Patchset version: $_patchset_version"
+    echo "  Current feature: $_current_feature ($((_current_index + 1))/$(echo "$_features" | wc -w | tr -d ' '))"
     echo ""
-    echo "충돌을 해결한 후:"
-    echo "  계속하려면: uri $_operation --continue"
-    echo "  중단하려면: uri $_operation --abort"
+    echo "After resolving the conflict:"
+    echo "  Continue with: uri $_operation --continue"
+    echo "  Abort with: uri $_operation --abort"
 }
 
-# 처리된 feature 목록 반환 (현재 인덱스 전까지)
-# 사용법: state_get_completed_features "/path/to/repo"
+# Return the processed feature list up to the current index
+# Usage: state_get_completed_features "/path/to/repo"
 state_get_completed_features() {
     _repo="$1"
     _features=$(state_get "$_repo" "features")
@@ -252,8 +283,8 @@ state_get_completed_features() {
     echo "$_completed" | sed 's/^ *//'
 }
 
-# 남은 feature 목록 반환 (현재 인덱스부터)
-# 사용법: state_get_remaining_features "/path/to/repo"
+# Return the remaining feature list starting at the current index
+# Usage: state_get_remaining_features "/path/to/repo"
 state_get_remaining_features() {
     _repo="$1"
     _features=$(state_get "$_repo" "features")
@@ -271,8 +302,8 @@ state_get_remaining_features() {
     echo "$_remaining" | sed 's/^ *//'
 }
 
-# 현재 인덱스 증가
-# 사용법: state_increment_index "/path/to/repo"
+# Increment the current index
+# Usage: state_increment_index "/path/to/repo"
 state_increment_index() {
     _repo="$1"
     _current=$(state_get "$_repo" "current_index")
