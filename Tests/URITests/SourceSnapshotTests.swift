@@ -79,32 +79,35 @@ struct SourceSnapshotTests {
         }
     }
 
-    @Test
-    func `HTTP snapshot follows a root manifest redirect`() async throws {
-        let home = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: home) }
-        unsafe MockURLProtocol.responses = [
-            "/redirect/manifest.yaml": .init(
-                status: 302,
-                body: "",
-                location: "https://example.com/final/manifest.yaml",
-            ),
-            "/final/manifest.yaml": .init(
-                status: 200,
-                body: "upstream: https://example.com/upstream.git\n",
-            ),
-        ]
-        let resolver = PatchsetSourceResolver(
-            paths: .init(homeURL: home),
-            session: mockSession(),
-        )
-        let resolved = try await resolver.resolve(
-            .init(kind: .http, original: "https://example.com/redirect"),
-        )
-        defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
-        #expect(try resolved.repository.rootManifest().upstream
-            == "https://example.com/upstream.git")
-    }
+    // swift-corelibs-foundation traps when URLProtocol reports a redirect.
+    #if canImport(Darwin)
+        @Test
+        func `HTTP snapshot follows a root manifest redirect`() async throws {
+            let home = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: home) }
+            unsafe MockURLProtocol.responses = [
+                "/redirect/manifest.yaml": .init(
+                    status: 302,
+                    body: "",
+                    location: "https://example.com/final/manifest.yaml",
+                ),
+                "/final/manifest.yaml": .init(
+                    status: 200,
+                    body: "upstream: https://example.com/upstream.git\n",
+                ),
+            ]
+            let resolver = PatchsetSourceResolver(
+                paths: .init(homeURL: home),
+                session: mockSession(),
+            )
+            let resolved = try await resolver.resolve(
+                .init(kind: .http, original: "https://example.com/redirect"),
+            )
+            defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
+            #expect(try resolved.repository.rootManifest().upstream
+                == "https://example.com/upstream.git")
+        }
+    #endif
 
     @Test
     func `Git source snapshot remains pinned after the remote advances`() async throws {
@@ -177,7 +180,7 @@ struct SourceSnapshotTests {
     }
 }
 
-private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+private final class MockURLProtocol: URLProtocol {
 
     struct Response: Sendable {
         let status: Int

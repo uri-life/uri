@@ -104,7 +104,7 @@ enum CLI {
             print("\(index + 1)) \(listing.id)\t\(listing.state.mode.rawValue)\t\(listing.path)")
         }
         print("Select an ephemeral workspace: ", terminator: "")
-        unsafe fflush(stdout)
+        fflush(nil)
         guard let line = readLine(), let selection = Int(line), listings.indices.contains(selection - 1) else {
             throw URIError.invalidArguments("Invalid ephemeral workspace selection.")
         }
@@ -116,7 +116,7 @@ enum CLI {
             return
         }
         print("\(prompt) [y/N] ", terminator: "")
-        unsafe fflush(stdout)
+        fflush(nil)
         let answer = readLine()?.lowercased()
         guard answer == "y" || answer == "yes" else {
             throw URIError.invalidArguments("Canceled.")

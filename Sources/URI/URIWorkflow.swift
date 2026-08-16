@@ -237,9 +237,10 @@ public struct URIWorkflow {
         )
         let state = try stateStore.load(from: stateURL)
         try validate(state: state, expectedMode: expectedMode, target: target)
+        let committer = try GitIdentity(name: state.committerName, email: state.committerEmail)
 
         if try await target.repository.isMailboxApplyInProgress() {
-            try await target.repository.abortMailboxApply()
+            try await target.repository.abortMailboxApply(committer: committer)
         }
         try await restoreStart(of: state, in: target.repository)
         try await deleteOperationBranches(state: state, repository: target.repository)

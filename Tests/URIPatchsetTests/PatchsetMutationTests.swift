@@ -163,34 +163,37 @@ struct PatchsetMutationTests {
         #expect(try Data(contentsOf: fixture.manifestURL(for: reference)) == original)
     }
 
-    @Test
-    func `feature addition rolls back its patch when manifest replacement fails`() throws {
-        let fixture = try PatchsetTestFixture()
-        defer { fixture.remove() }
-        let reference = try fixture.reference("patch1.0")
-        try fixture.writeManifest("features: {}", for: reference)
-        let manifestURL = fixture.manifestURL(for: reference)
-        let original = try Data(contentsOf: manifestURL)
-        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: manifestURL.path)
-        defer {
-            try? FileManager.default.setAttributes(
-                [.immutable: false],
-                ofItemAtPath: manifestURL.path,
-            )
-        }
+    // swift-corelibs-foundation does not support immutable file attributes.
+    #if canImport(Darwin)
+        @Test
+        func `feature addition rolls back its patch when manifest replacement fails`() throws {
+            let fixture = try PatchsetTestFixture()
+            defer { fixture.remove() }
+            let reference = try fixture.reference("patch1.0")
+            try fixture.writeManifest("features: {}", for: reference)
+            let manifestURL = fixture.manifestURL(for: reference)
+            let original = try Data(contentsOf: manifestURL)
+            try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: manifestURL.path)
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.immutable: false],
+                    ofItemAtPath: manifestURL.path,
+                )
+            }
 
-        let error = capturedPatchsetError({
-            try fixture.repository.addFeature(.init(id: "base"), to: reference)
-        })
+            let error = capturedPatchsetError({
+                try fixture.repository.addFeature(.init(id: "base"), to: reference)
+            })
 
-        guard case .fileSystem(let operation, let failedURL, _)? = error else {
-            Issue.record("Expected fileSystem.")
-            return
+            guard case .fileSystem(let operation, let failedURL, _)? = error else {
+                Issue.record("Expected fileSystem.")
+                return
+            }
+            let patchURL = try fixture.patchURL(for: .feature("base"), in: reference)
+            #expect(operation == "write")
+            #expect(failedURL == manifestURL)
+            #expect(try Data(contentsOf: manifestURL) == original)
+            #expect(!FileManager.default.fileExists(atPath: patchURL.path))
         }
-        let patchURL = try fixture.patchURL(for: .feature("base"), in: reference)
-        #expect(operation == "write")
-        #expect(failedURL == manifestURL)
-        #expect(try Data(contentsOf: manifestURL) == original)
-        #expect(!FileManager.default.fileExists(atPath: patchURL.path))
-    }
+    #endif
 }

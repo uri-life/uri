@@ -422,11 +422,14 @@ public struct GitRepository: Sendable {
         )
     }
 
-    public func abortMailboxApply() async throws {
-        _ = try await run([
-            "am",
-            "--abort",
-        ])
+    public func abortMailboxApply(committer: GitIdentity? = nil) async throws {
+        _ = try await run(
+            [
+                "am",
+                "--abort",
+            ],
+            environment: committer.map(committerEnvironment) ?? [:],
+        )
     }
 
     public func isMailboxApplyInProgress() async throws -> Bool {
