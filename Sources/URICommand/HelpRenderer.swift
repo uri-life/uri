@@ -10,7 +10,7 @@ struct HelpRenderer {
         terminal.output("")
         terminal.output(terminal.styled("USAGE", as: .bold, to: .standardOutput))
         terminal.output(
-            "  \(terminal.styled("uri [--color <when>] <command>", as: .cyan, to: .standardOutput))",
+            "  \(terminal.styled(UsageRenderer().renderRoot(CommandCatalog.rootForm), as: .cyan, to: .standardOutput))",
         )
         renderOptions(CommandCatalog.rootOptions)
         terminal.output("")
@@ -28,7 +28,7 @@ struct HelpRenderer {
         terminal.output("  \(command.abstract)")
         terminal.output("")
         terminal.output(terminal.styled("USAGE", as: .bold, to: .standardOutput))
-        for usage in command.usages {
+        for usage in UsageRenderer().render(command) {
             terminal.output(
                 "  \(terminal.styled(usage, as: .cyan, to: .standardOutput))",
             )
@@ -36,7 +36,7 @@ struct HelpRenderer {
         if !command.arguments.isEmpty {
             terminal.output("")
             terminal.output(terminal.styled("ARGUMENTS", as: .bold, to: .standardOutput))
-            renderRows(command.arguments.map({ ($0.synopsis, $0.help) }))
+            renderRows(command.arguments.map({ ($0.id.rawValue, $0.help) }))
         }
         renderOptions(command.options + CommandCatalog.globalCommandOptions)
     }

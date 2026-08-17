@@ -12,9 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Commands can now read patchsets from an explicit local directory, a public
   static HTTP tree, or a Git repository. Remote operations use one consistent
   snapshot, while authoring commands remain local-only.
-- Added explicit managed workspaces through the final `--ephemeral [ID]` target
-  selector, with `list --ephemeral`, path lookup, automatic IDs, safe removal
-  through `vanish`, and `collapse --discard`.
+- Added explicit managed workspaces through the alternative `--ephemeral [ID]`
+  TARGET form, with complete listing through `list --ephemeral`, automatic IDs,
+  safe removal through `vanish`, and `collapse --discard`.
 - Added TTY-aware colored help, status, prompts, warnings, and diagnostics with
   global `--color auto|always|never`; machine-readable output remains plain.
 
@@ -26,10 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GLIBCXX_3.4.32` or later, on ARM64 and x86-64.
 - **Breaking:** Omitting `TARGET` now selects the current Git worktree and
   errors when no worktree can be found. Managed clones must be requested
-  explicitly with final `--ephemeral [ID]`.
+  explicitly with the `--ephemeral [ID]` TARGET form.
 - **Breaking:** `collapse` now reads `SOURCE`, `VERSION`, `PATCHSET`, and
-  `FEATURE` from expansion state and accepts only an optional `TARGET` or final
-  `--ephemeral [ID]` selector.
+  `FEATURE` from expansion state and accepts only an optional path or
+  `--ephemeral [ID]` TARGET.
 - **Breaking:** Active 1.x expansion and conflict state is not migrated and
   must be completed with 1.x. Manifest and patch file formats remain compatible.
 - **Breaking:** Manifest loading now rejects unknown keys and incorrect scalar
@@ -42,7 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   without terminal prompts. Static HTTP sources remain unauthenticated, and
   interactive Git credential prompts are disabled.
 - Bash, Zsh, and Fish completion scripts are now generated on demand with
-  `--generate-completion-script` instead of being distributed as static files.
+  `--generate-completion-script` instead of being distributed as static files;
+  they provide local, context-aware VERSION, PATCHSET, FEATURE, inheritance,
+  dependency, TARGET, and ephemeral workspace candidates without contacting
+  remote sources.
 - `uri --version` now reports `2.0.0` for an exact `v2.0.0` release build and
   `dev+<short-commit>` for development builds.
 

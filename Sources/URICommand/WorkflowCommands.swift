@@ -13,7 +13,7 @@ struct Expand {
 
     let noDevelopmentDependencies: Bool
 
-    let ephemeral: String?
+    let target: TargetArgumentValue
 
     func run(terminal: Terminal) async throws {
         guard !(continueOperation && abortOperation) else {
@@ -21,21 +21,18 @@ struct Expand {
         }
         let workflow = URIWorkflow()
         if continueOperation || abortOperation {
-            guard values.count <= 1 else {
-                throw URIError.invalidArguments("Recovery accepts at most TARGET.")
-            }
             guard !force, !noDevelopmentDependencies else {
                 throw URIError.invalidArguments("Start-only options cannot be used for recovery.")
             }
             let ephemeralID = try CLI.selectedExistingEphemeralID(
-                ephemeral,
+                target,
                 terminal: terminal,
             )
             let result: WorkflowResult
             if continueOperation {
                 result = try await workflow.continue(
                     mode: .expand,
-                    targetURL: CLI.targetURL(values.first),
+                    targetURL: CLI.targetURL(target),
                     currentDirectoryURL: CLI.currentDirectoryURL,
                     ephemeralID: ephemeralID,
                 )
@@ -44,7 +41,7 @@ struct Expand {
             else {
                 result = try await workflow.abort(
                     mode: .expand,
-                    targetURL: CLI.targetURL(values.first),
+                    targetURL: CLI.targetURL(target),
                     currentDirectoryURL: CLI.currentDirectoryURL,
                     ephemeralID: ephemeralID,
                 )
@@ -54,7 +51,7 @@ struct Expand {
         }
 
         let (source, arguments) = try CLI.sourceAndArguments(values)
-        guard arguments.count == 3 || arguments.count == 4 else {
+        guard arguments.count == 3 else {
             throw URIError.invalidArguments(
                 "expand requires [SOURCE] VERSION PATCHSET FEATURE [TARGET].",
             )
@@ -63,9 +60,9 @@ struct Expand {
             source: source,
             reference: try CLI.reference(arguments[...]),
             featureID: arguments[2],
-            targetURL: CLI.targetURL(arguments.count == 4 ? arguments[3] : nil),
+            targetURL: CLI.targetURL(target),
             currentDirectoryURL: CLI.currentDirectoryURL,
-            ephemeral: try CLI.ephemeralRequest(ephemeral),
+            ephemeral: try CLI.ephemeralRequest(target),
             includeDevelopmentDependencies: !noDevelopmentDependencies,
             force: force,
         )
@@ -81,7 +78,7 @@ struct Apply {
 
     let abortOperation: Bool
 
-    let ephemeral: String?
+    let target: TargetArgumentValue
 
     func run(terminal: Terminal) async throws {
         guard !(continueOperation && abortOperation) else {
@@ -89,18 +86,15 @@ struct Apply {
         }
         let workflow = URIWorkflow()
         if continueOperation || abortOperation {
-            guard values.count <= 1 else {
-                throw URIError.invalidArguments("Recovery accepts at most TARGET.")
-            }
             let ephemeralID = try CLI.selectedExistingEphemeralID(
-                ephemeral,
+                target,
                 terminal: terminal,
             )
             let result: WorkflowResult
             if continueOperation {
                 result = try await workflow.continue(
                     mode: .apply,
-                    targetURL: CLI.targetURL(values.first),
+                    targetURL: CLI.targetURL(target),
                     currentDirectoryURL: CLI.currentDirectoryURL,
                     ephemeralID: ephemeralID,
                 )
@@ -109,7 +103,7 @@ struct Apply {
             else {
                 result = try await workflow.abort(
                     mode: .apply,
-                    targetURL: CLI.targetURL(values.first),
+                    targetURL: CLI.targetURL(target),
                     currentDirectoryURL: CLI.currentDirectoryURL,
                     ephemeralID: ephemeralID,
                 )
@@ -119,7 +113,7 @@ struct Apply {
         }
 
         let (source, arguments) = try CLI.sourceAndArguments(values)
-        guard arguments.count == 2 || arguments.count == 3 else {
+        guard arguments.count == 2 else {
             throw URIError.invalidArguments(
                 "apply requires [SOURCE] VERSION PATCHSET [TARGET].",
             )
@@ -127,9 +121,9 @@ struct Apply {
         let result = try await workflow.apply(
             source: source,
             reference: try CLI.reference(arguments[...]),
-            targetURL: CLI.targetURL(arguments.count == 3 ? arguments[2] : nil),
+            targetURL: CLI.targetURL(target),
             currentDirectoryURL: CLI.currentDirectoryURL,
-            ephemeral: try CLI.ephemeralRequest(ephemeral),
+            ephemeral: try CLI.ephemeralRequest(target),
         )
         CLI.report(result, verb: "Applied", terminal: terminal)
     }
@@ -137,17 +131,15 @@ struct Apply {
 
 struct Collapse {
 
-    let target: String?
+    let target: TargetArgumentValue
 
     let recursive: Bool
 
     let discard: Bool
 
-    let ephemeral: String?
-
     func run(terminal: Terminal) async throws {
         let ephemeralID = try CLI.selectedExistingEphemeralID(
-            ephemeral,
+            target,
             terminal: terminal,
         )
         let result = try await URIWorkflow().collapse(
@@ -172,10 +164,11 @@ struct Vanish {
     let force: Bool
 
     func run(terminal: Terminal) async throws {
-        let selected = try id.map({ value in
-            try EphemeralWorkspaceManager.validateID(value)
-            return value
-        }) ?? CLI.selectEphemeralID(terminal: terminal)
+        let selected =
+            try id.map({ value in
+                try EphemeralWorkspaceManager.validateID(value)
+                return value
+            }) ?? CLI.selectEphemeralID(terminal: terminal)
         try await EphemeralWorkspaceManager().vanish(id: selected, force: force)
         terminal.success("Vanished", value: selected)
     }

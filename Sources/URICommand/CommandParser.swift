@@ -15,56 +15,68 @@ enum ParsedOption: Equatable {
 
     case flag
 
-    case value(String?)
+    case value(String)
+}
+
+enum PositionalToken: Equatable {
+
+    case value(String)
+
+    case ephemeralTarget(id: String?)
 }
 
 struct ParsedArguments: Equatable {
 
-    let positionals: [String]
+    let positionals: [PositionalToken]
 
-    let options: [String: ParsedOption]
+    let options: [OptionID: ParsedOption]
 
-    func contains(_ name: String) -> Bool {
-        options[name] != nil
+    func contains(_ id: OptionID) -> Bool {
+        options[id] != nil
     }
 
-    func value(_ name: String) -> String? {
-        guard case .value(let value) = options[name] else {
+    func value(_ id: OptionID) -> String? {
+        guard case .value(let value) = options[id] else {
             return nil
         }
         return value
     }
+}
 
-    func optionalValue(_ name: String) -> (present: Bool, value: String?) {
-        guard case .value(let value) = options[name] else {
-            return (false, nil)
+struct MatchedCommandForm: Equatable {
+
+    let form: CommandForm
+
+    let values: [String]
+
+    let target: TargetArgumentValue
+
+    let options: [OptionID: ParsedOption]
+
+    func contains(_ id: OptionID) -> Bool {
+        options[id] != nil
+    }
+
+    func value(_ id: OptionID) -> String? {
+        guard case .value(let value) = options[id] else {
+            return nil
         }
-        return (true, value)
+        return value
     }
 }
 
 enum ParsedCommand {
 
     case initialize(Init)
-
     case add(Add)
-
     case remove(Remove)
-
     case exclude(Exclude)
-
     case include(Include)
-
     case list(List)
-
     case graph(Graph)
-
     case expand(Expand)
-
     case apply(Apply)
-
     case collapse(Collapse)
-
     case vanish(Vanish)
 
     func run(terminal: Terminal) async throws {
@@ -175,20 +187,12 @@ struct CommandParser {
                 continue
             }
             if parsesOptions, token == "--version" {
-                try setSpecialAction(
-                    name: "--version",
-                    action: .version,
-                    current: &specialAction,
-                )
+                try setSpecialAction(name: "--version", action: .version, current: &specialAction)
                 index += 1
                 continue
             }
             if parsesOptions, token == "--help" || token == "-h" {
-                try setSpecialAction(
-                    name: "--help",
-                    action: .help(nil),
-                    current: &specialAction,
-                )
+                try setSpecialAction(name: "--help", action: .help(nil), current: &specialAction)
                 index += 1
                 continue
             }
@@ -264,14 +268,15 @@ struct CommandParser {
             colorMode: initialColorMode,
             colorWasSpecified: initiallySpecified,
         )
-        if scan.arguments.contains("help") {
+        if scan.arguments.contains(.help) {
             return .init(action: .help(definition), colorMode: scan.colorMode)
         }
-        if scan.arguments.contains("version") {
+        if scan.arguments.contains(.version) {
             return .init(action: .version, colorMode: scan.colorMode)
         }
+        let matched = try match(definition, arguments: scan.arguments)
         return .init(
-            action: .run(try makeCommand(definition, arguments: scan.arguments)),
+            action: .run(try makeCommand(definition, arguments: matched)),
             colorMode: scan.colorMode,
         )
     }
@@ -336,24 +341,83 @@ struct CommandParser {
             uniquingKeysWith: { first, _ in first },
         )
         var colorMode = initialColorMode
-        var seen = Set<String>()
+        var seen = Set<OptionID>()
         if initiallySpecified {
-            seen.insert("color")
+            seen.insert(.color)
         }
-        var options = [String: ParsedOption]()
-        var positionals = [String]()
+        var options = [OptionID: ParsedOption]()
+        var positionals = [PositionalToken]()
         var parsesOptions = true
+        var sawEphemeralTarget = false
         var index = 0
 
         while index < arguments.count {
             let token = arguments[index]
             if parsesOptions, token == "--" {
+                guard !sawEphemeralTarget else {
+                    throw usage(
+                        "'--' cannot follow an ephemeral TARGET.",
+                        commandName: definition.name,
+                    )
+                }
                 parsesOptions = false
                 index += 1
                 continue
             }
+            if parsesOptions,
+                let ephemeralTarget = definition.ephemeralTarget,
+                token == ephemeralTarget.token || token.hasPrefix("\(ephemeralTarget.token)=")
+            {
+                guard !sawEphemeralTarget else {
+                    throw usage(
+                        "TARGET may only be specified once.",
+                        commandName: definition.name,
+                    )
+                }
+                let id: String?
+                if token.hasPrefix("\(ephemeralTarget.token)=") {
+                    let prefix = "\(ephemeralTarget.token)="
+                    let value = String(token.dropFirst(prefix.count))
+                    guard !value.isEmpty else {
+                        throw usage(
+                            "Ephemeral TARGET requires a nonempty ID after '='.",
+                            commandName: definition.name,
+                        )
+                    }
+                    id = value
+                    index += 1
+                }
+                else {
+                    let valueIndex = arguments.index(after: index)
+                    if valueIndex < arguments.endIndex,
+                        arguments[valueIndex] != "--",
+                        !arguments[valueIndex].hasPrefix("-")
+                    {
+                        id = arguments[valueIndex]
+                        index = arguments.index(after: valueIndex)
+                    }
+                    else {
+                        id = nil
+                        index += 1
+                    }
+                }
+                if let id {
+                    do {
+                        try EphemeralWorkspaceManager.validateID(id)
+                    }
+                    catch {
+                        throw usage(
+                            String(describing: error),
+                            commandName: definition.name,
+                        )
+                    }
+                }
+                positionals.append(.ephemeralTarget(id: id))
+                sawEphemeralTarget = true
+                continue
+            }
             guard parsesOptions, token.hasPrefix("-"), token != "-" else {
-                positionals.append(token)
+                positionals.append(.value(token))
                 index += 1
                 continue
             }
@@ -365,7 +429,7 @@ struct CommandParser {
                 commandName: definition.name,
             )
             let option = match.definition
-            guard seen.insert(option.longName).inserted else {
+            guard seen.insert(option.id).inserted else {
                 throw usage(
                     "Option '--\(option.longName)' may only be specified once.",
                     commandName: definition.name,
@@ -379,7 +443,7 @@ struct CommandParser {
                         commandName: definition.name,
                     )
                 }
-                options[option.longName] = .flag
+                options[option.id] = .flag
                 index += 1
             case .value(_, let allowedValues):
                 let value: String
@@ -413,68 +477,118 @@ struct CommandParser {
                         commandName: definition.name,
                     )
                 }
-                if option.longName == "color" {
+                if option.id == .color {
                     colorMode = ColorMode(rawValue: value)!
                 }
                 else {
-                    options[option.longName] = .value(value)
+                    options[option.id] = .value(value)
                 }
-            case .optionalValue:
-                var value = match.attachedValue
-                if value?.isEmpty == true {
-                    throw usage(
-                        "Option '--\(option.longName)' requires a nonempty value after '='.",
-                        commandName: definition.name,
-                    )
-                }
-                if value == nil {
-                    let valueIndex = arguments.index(after: index)
-                    if valueIndex < arguments.endIndex,
-                        !arguments[valueIndex].hasPrefix("-")
-                    {
-                        value = arguments[valueIndex]
-                        index = arguments.index(after: valueIndex)
-                    }
-                    else {
-                        index += 1
-                    }
-                }
-                else {
-                    index += 1
-                }
-                if option.longName == "ephemeral",
-                    definition.supportsFinalEphemeralSelector,
-                    index != arguments.endIndex
-                {
-                    throw usage(
-                        "--ephemeral [ID] must be the final TARGET selector in the command.",
-                        commandName: definition.name,
-                    )
-                }
-                options[option.longName] = .value(value)
             }
         }
 
-        return (
-            .init(positionals: positionals, options: options),
-            colorMode
+        return (.init(positionals: positionals, options: options), colorMode)
+    }
+
+    private func match(
+        _ definition: CommandDefinition,
+        arguments: ParsedArguments,
+    ) throws -> MatchedCommandForm {
+        for form in definition.forms {
+            guard Set(arguments.options.keys).isSubset(of: form.allowedOptions) else {
+                continue
+            }
+            guard
+                form.elements.allSatisfy({ element in
+                    switch element {
+                    case .argument:
+                        return true
+                    case .requiredOption(let option):
+                        return arguments.contains(option)
+                    case .oneOf(let options):
+                        return options.filter(arguments.contains).count == 1
+                    }
+                })
+            else {
+                continue
+            }
+            if let positionalMatch = match(
+                arguments.positionals,
+                to: form.arguments,
+            ) {
+                return .init(
+                    form: form,
+                    values: positionalMatch.values,
+                    target: positionalMatch.target,
+                    options: arguments.options,
+                )
+            }
+        }
+        throw usage(
+            "Arguments do not match any accepted form of 'uri \(definition.name)'.",
+            commandName: definition.name,
         )
+    }
+
+    private func match(
+        _ tokens: [PositionalToken],
+        to definitions: [ArgumentDefinition],
+    ) -> (values: [String], target: TargetArgumentValue)? {
+        var index = 0
+        var values = [String]()
+        var target = TargetArgumentValue.omitted
+
+        for definition in definitions {
+            let token = tokens.indices.contains(index) ? tokens[index] : nil
+            switch definition.valueKind {
+            case .source:
+                if case .value(let value) = token,
+                    PatchsetSourceLocator.recognizesExplicitSource(value)
+                {
+                    values.append(value)
+                    index += 1
+                }
+                else if !definition.optional {
+                    return nil
+                }
+            case .scalar:
+                if case .value(let value) = token {
+                    values.append(value)
+                    index += 1
+                }
+                else if !definition.optional {
+                    return nil
+                }
+            case .target(let targetDefinition):
+                switch token {
+                case .value(let value):
+                    target = .path(value)
+                    index += 1
+                case .ephemeralTarget(let id) where targetDefinition.ephemeral != nil:
+                    target = .ephemeral(id: id)
+                    index += 1
+                case nil where definition.optional:
+                    break
+                default:
+                    return nil
+                }
+            }
+        }
+        guard index == tokens.count else {
+            return nil
+        }
+        return (values, target)
     }
 
     private func makeCommand(
         _ definition: CommandDefinition,
-        arguments: ParsedArguments,
+        arguments: MatchedCommandForm,
     ) throws -> ParsedCommand {
-        let positionals = arguments.positionals
-        let split = CLI.splitSource(positionals)
-        let ephemeral = ephemeralValue(arguments)
+        let values = arguments.values
+        let split = CLI.splitSource(values)
 
-        switch definition.name {
-        case "init":
-            guard split.rest.count <= 1 else {
-                throw usage("init accepts at most SOURCE and VERSION.", commandName: definition.name)
-            }
-            guard arguments.contains("committer-name") == arguments.contains("committer-email") else {
+        switch definition.id {
+        case .initialize:
+            guard arguments.contains(.committerName) == arguments.contains(.committerEmail) else {
                 throw usage(
                     "--committer-name and --committer-email must be specified together.",
                     commandName: definition.name,
@@ -482,29 +596,23 @@ struct CommandParser {
             }
             return .initialize(
                 .init(
-                    values: positionals,
-                    upstream: arguments.value("upstream"),
-                    branchPrefix: arguments.value("branch-prefix"),
-                    committerName: arguments.value("committer-name"),
-                    committerEmail: arguments.value("committer-email"),
+                    values: values,
+                    upstream: arguments.value(.upstream),
+                    branchPrefix: arguments.value(.branchPrefix),
+                    committerName: arguments.value(.committerName),
+                    committerEmail: arguments.value(.committerEmail),
                 ),
             )
-        case "add":
-            guard split.rest.count == 2 || split.rest.count == 3 else {
-                throw usage(
-                    "add requires VERSION PATCHSET [FEATURE].",
-                    commandName: definition.name,
-                )
-            }
+        case .add:
             if split.rest.count == 2 {
-                guard !arguments.contains("name"),
-                    !arguments.contains("description"),
-                    !arguments.contains("dependencies"),
-                    !arguments.contains("dev-dependencies")
+                guard !arguments.contains(.name),
+                    !arguments.contains(.description),
+                    !arguments.contains(.dependencies),
+                    !arguments.contains(.developmentDependencies)
                 else {
                     throw usage("Feature options require FEATURE.", commandName: definition.name)
                 }
-                guard !arguments.contains("inherits-upstream") || arguments.contains("inherits") else {
+                guard !arguments.contains(.inheritsUpstream) || arguments.contains(.inherits) else {
                     throw usage(
                         "--inherits-upstream requires --inherits.",
                         commandName: definition.name,
@@ -512,7 +620,7 @@ struct CommandParser {
                 }
             }
             else {
-                guard !arguments.contains("inherits"), !arguments.contains("inherits-upstream") else {
+                guard !arguments.contains(.inherits), !arguments.contains(.inheritsUpstream) else {
                     throw usage(
                         "Inheritance options cannot be used with FEATURE.",
                         commandName: definition.name,
@@ -521,186 +629,71 @@ struct CommandParser {
             }
             return .add(
                 .init(
-                    values: positionals,
-                    name: arguments.value("name"),
-                    featureDescription: arguments.value("description"),
-                    dependencies: arguments.value("dependencies"),
-                    devDependencies: arguments.value("dev-dependencies"),
-                    inherits: arguments.value("inherits"),
-                    inheritsUpstream: arguments.value("inherits-upstream"),
+                    values: values,
+                    name: arguments.value(.name),
+                    featureDescription: arguments.value(.description),
+                    dependencies: arguments.value(.dependencies),
+                    devDependencies: arguments.value(.developmentDependencies),
+                    inherits: arguments.value(.inherits),
+                    inheritsUpstream: arguments.value(.inheritsUpstream),
                 ),
             )
-        case "remove":
-            guard (1...3).contains(split.rest.count) else {
-                throw usage(
-                    "remove requires VERSION [PATCHSET] [FEATURE].",
-                    commandName: definition.name,
-                )
-            }
-            return .remove(.init(values: positionals, force: arguments.contains("force")))
-        case "exclude":
-            guard split.rest.count == 3 else {
-                throw usage(
-                    "exclude requires VERSION PATCHSET FEATURE.",
-                    commandName: definition.name,
-                )
-            }
-            return .exclude(.init(values: positionals))
-        case "include":
-            guard split.rest.count == 3 else {
-                throw usage(
-                    "include requires VERSION PATCHSET FEATURE.",
-                    commandName: definition.name,
-                )
-            }
-            return .include(.init(values: positionals))
-        case "list":
-            let ephemeralOption = arguments.optionalValue("ephemeral")
-            if ephemeralOption.present {
-                guard positionals.isEmpty else {
-                    throw usage(
-                        "Patchset SOURCE arguments cannot be combined with --ephemeral.",
-                        commandName: definition.name,
-                    )
-                }
-                if arguments.contains("path"), ephemeralOption.value == nil {
-                    throw usage(
-                        "--path requires an explicit --ephemeral ID.",
-                        commandName: definition.name,
-                    )
-                }
-            }
-            else {
-                guard !arguments.contains("path") else {
-                    throw usage("--path requires --ephemeral ID.", commandName: definition.name)
-                }
-                guard split.rest.count <= 2 else {
-                    throw usage(
-                        "list accepts [VERSION] [PATCHSET].",
-                        commandName: definition.name,
-                    )
-                }
-            }
-            return .list(
-                .init(
-                    values: positionals,
-                    ephemeral: ephemeral,
-                    path: arguments.contains("path"),
-                ),
-            )
-        case "graph":
-            guard split.rest.count == 2 else {
-                throw usage("graph requires VERSION PATCHSET.", commandName: definition.name)
-            }
+        case .remove:
+            return .remove(.init(values: values, force: arguments.contains(.force)))
+        case .exclude:
+            return .exclude(.init(values: values))
+        case .include:
+            return .include(.init(values: values))
+        case .list:
+            let mode: List.Mode =
+                arguments.form.id == .ephemeralList
+                ? .ephemeral
+                : .hierarchy(values)
+            return .list(.init(mode: mode))
+        case .graph:
             return .graph(
                 .init(
-                    values: positionals,
-                    includeDevelopment: arguments.contains("include-dev"),
-                    format: Graph.Format(rawValue: arguments.value("format") ?? "tree")!,
+                    values: values,
+                    includeDevelopment: arguments.contains(.includeDevelopment),
+                    format: Graph.Format(rawValue: arguments.value(.format) ?? "tree")!,
                 ),
             )
-        case "expand":
-            let recovery = try recoveryMode(arguments, commandName: definition.name)
-            if recovery != nil {
-                guard positionals.count <= 1 else {
-                    throw usage("Recovery accepts at most TARGET.", commandName: definition.name)
-                }
-                guard !arguments.contains("force"), !arguments.contains("no-dev") else {
-                    throw usage(
-                        "Start-only options cannot be used for recovery.",
-                        commandName: definition.name,
-                    )
-                }
-            }
-            else {
-                guard split.rest.count == 3 || split.rest.count == 4 else {
-                    throw usage(
-                        "expand requires [SOURCE] VERSION PATCHSET FEATURE [TARGET].",
-                        commandName: definition.name,
-                    )
-                }
-                if ephemeral != nil, split.rest.count == 4 {
-                    throw usage(
-                        "TARGET and --ephemeral cannot be used together.",
-                        commandName: definition.name,
-                    )
-                }
-            }
+        case .expand:
             return .expand(
                 .init(
-                    values: positionals,
-                    continueOperation: recovery == .continueOperation,
-                    abortOperation: recovery == .abortOperation,
-                    force: arguments.contains("force"),
-                    noDevelopmentDependencies: arguments.contains("no-dev"),
-                    ephemeral: ephemeral,
+                    values: values,
+                    continueOperation: arguments.contains(.continueOperation),
+                    abortOperation: arguments.contains(.abortOperation),
+                    force: arguments.contains(.force),
+                    noDevelopmentDependencies: arguments.contains(.noDevelopment),
+                    target: arguments.target,
                 ),
             )
-        case "apply":
-            let recovery = try recoveryMode(arguments, commandName: definition.name)
-            if recovery != nil {
-                guard positionals.count <= 1 else {
-                    throw usage("Recovery accepts at most TARGET.", commandName: definition.name)
-                }
-            }
-            else {
-                guard split.rest.count == 2 || split.rest.count == 3 else {
-                    throw usage(
-                        "apply requires [SOURCE] VERSION PATCHSET [TARGET].",
-                        commandName: definition.name,
-                    )
-                }
-                if ephemeral != nil, split.rest.count == 3 {
-                    throw usage(
-                        "TARGET and --ephemeral cannot be used together.",
-                        commandName: definition.name,
-                    )
-                }
-            }
+        case .apply:
             return .apply(
                 .init(
-                    values: positionals,
-                    continueOperation: recovery == .continueOperation,
-                    abortOperation: recovery == .abortOperation,
-                    ephemeral: ephemeral,
+                    values: values,
+                    continueOperation: arguments.contains(.continueOperation),
+                    abortOperation: arguments.contains(.abortOperation),
+                    target: arguments.target,
                 ),
             )
-        case "collapse":
-            guard positionals.count <= 1 else {
-                throw usage("collapse accepts at most TARGET.", commandName: definition.name)
-            }
-            guard !(arguments.contains("recursive") && arguments.contains("discard")) else {
+        case .collapse:
+            guard !(arguments.contains(.recursive) && arguments.contains(.discard)) else {
                 throw usage(
                     "--recursive and --discard cannot be used together.",
                     commandName: definition.name,
                 )
             }
-            guard ephemeral == nil || positionals.isEmpty else {
-                throw usage(
-                    "TARGET and --ephemeral cannot be used together.",
-                    commandName: definition.name,
-                )
-            }
             return .collapse(
                 .init(
-                    target: positionals.first,
-                    recursive: arguments.contains("recursive"),
-                    discard: arguments.contains("discard"),
-                    ephemeral: ephemeral,
+                    target: arguments.target,
+                    recursive: arguments.contains(.recursive),
+                    discard: arguments.contains(.discard),
                 ),
             )
-        case "vanish":
-            guard positionals.count <= 1 else {
-                throw usage("vanish accepts at most ID.", commandName: definition.name)
-            }
-            return .vanish(
-                .init(
-                    id: positionals.first,
-                    force: arguments.contains("force"),
-                ),
-            )
-        default:
-            fatalError("Every command definition must have a parser.")
+        case .vanish:
+            return .vanish(.init(id: values.first, force: arguments.contains(.force)))
         }
     }
 
@@ -721,10 +714,7 @@ struct CommandParser {
             guard !name.isEmpty, let definition = longOptions[name] else {
                 throw usage("Unknown option '\(token)'.", commandName: commandName)
             }
-            return (
-                definition,
-                pieces.count == 2 ? String(pieces[1]) : nil
-            )
+            return (definition, pieces.count == 2 ? String(pieces[1]) : nil)
         }
         guard token.count == 2,
             let name = token.last,
@@ -761,9 +751,7 @@ struct CommandParser {
             index = arguments.index(after: valueIndex)
         }
         guard let colorMode = ColorMode(rawValue: value) else {
-            throw usage(
-                "Invalid value '\(value)' for '--color'; expected auto, always, never.",
-            )
+            throw usage("Invalid value '\(value)' for '--color'; expected auto, always, never.")
         }
         return colorMode
     }
@@ -789,40 +777,9 @@ struct CommandParser {
             index = arguments.index(after: valueIndex)
         }
         guard let shell = CompletionShell(rawValue: value) else {
-            throw usage(
-                "Invalid completion shell '\(value)'; expected bash, zsh, fish.",
-            )
+            throw usage("Invalid completion shell '\(value)'; expected bash, zsh, fish.")
         }
         return shell
-    }
-
-    private func ephemeralValue(_ arguments: ParsedArguments) -> String? {
-        let option = arguments.optionalValue("ephemeral")
-        guard option.present else {
-            return nil
-        }
-        return option.value ?? CLI.automaticEphemeralID
-    }
-
-    private func recoveryMode(
-        _ arguments: ParsedArguments,
-        commandName: String,
-    ) throws -> RecoveryMode? {
-        let continueOperation = arguments.contains("continue")
-        let abortOperation = arguments.contains("abort")
-        guard !(continueOperation && abortOperation) else {
-            throw usage(
-                "--continue and --abort cannot be used together.",
-                commandName: commandName,
-            )
-        }
-        if continueOperation {
-            return .continueOperation
-        }
-        if abortOperation {
-            return .abortOperation
-        }
-        return nil
     }
 
     private func usage(
@@ -830,12 +787,5 @@ struct CommandParser {
         commandName: String? = nil,
     ) -> CommandUsageError {
         .init(message: message, commandName: commandName)
-    }
-
-    private enum RecoveryMode {
-
-        case continueOperation
-
-        case abortOperation
     }
 }

@@ -23,100 +23,67 @@ struct CompletionGenerator {
     }
 
     private func bashScript() -> String {
-        let commands = (CommandCatalog.commands.map(\.name) + ["help"]).joined(separator: " ")
-        let cases = CommandCatalog.commands.map({ command in
-            let options = optionTokens(command.options + CommandCatalog.globalCommandOptions)
-            return "        \(command.name)) candidates=\(shellQuote(options)) ;;"
-        }).joined(separator: "\n")
-        return """
+        """
         _uri() {
-            local cur prev command word candidates
+            local cur output kind value description wants_directories
+            local -a request candidates
             COMPREPLY=()
             cur="${COMP_WORDS[COMP_CWORD]}"
-            prev="${COMP_WORDS[COMP_CWORD-1]}"
+            request=("${COMP_WORDS[@]:1:$COMP_CWORD}")
+            output=$(command uri --_complete -- "${request[@]}" 2>/dev/null) || return 0
+            wants_directories=0
 
-            case "$prev" in
-                --color) COMPREPLY=($(compgen -W 'auto always never' -- "$cur")); return ;;
-                --format) COMPREPLY=($(compgen -W 'tree dot' -- "$cur")); return ;;
-                --generate-completion-script) COMPREPLY=($(compgen -W 'bash zsh fish' -- "$cur")); return ;;
-            esac
-
-            command=""
-            for word in "${COMP_WORDS[@]:1}"; do
-                case "$word" in
-                    \(commands.replacingOccurrences(of: " ", with: "|"))) command="$word"; break ;;
+            while IFS=$'\t' read -r kind value description; do
+                case "$kind" in
+                    candidate)
+                        candidates[${#candidates[@]}]="$value"
+                        ;;
+                    directive)
+                        [[ "$value" == directories ]] && wants_directories=1
+                        ;;
                 esac
-            done
+            done <<< "$output"
 
-            if [[ -z "$command" ]]; then
-                candidates=\(shellQuote(commands + " " + optionTokens(CommandCatalog.rootOptions)))
-            else
-                case "$command" in
-        \(cases)
-                    help) candidates=\(shellQuote(commands + " --color --help -h --version")) ;;
-                esac
+            if [[ "$wants_directories" == 1 ]]; then
+                while IFS= read -r value; do
+                    candidates[${#candidates[@]}]="$value"
+                done < <(compgen -d -- "$cur")
             fi
-            COMPREPLY=($(compgen -W "$candidates" -- "$cur"))
+            COMPREPLY=("${candidates[@]}")
         }
 
-        complete -F _uri uri
+        complete -o filenames -F _uri uri
         """ + "\n"
     }
 
     private func zshScript() -> String {
-        let commands = (CommandCatalog.commands + [
-            .init(
-                name: "help",
-                abstract: "Show help information for a command.",
-                usages: [],
-                arguments: [],
-                options: [],
-            ),
-        ]).map({ command in
-            "\(zshEscape(command.name)):\(zshEscape(command.abstract))"
-        }).joined(separator: " ")
-        let cases = CommandCatalog.commands.map({ command in
-            let options = (command.options + CommandCatalog.globalCommandOptions)
-                .map(zshArgument)
-                .joined(separator: " \\" + "\n                ")
-            return """
-                \(command.name))
-                    _arguments -s \\
-                        \(options) \\
-                        '*:argument:_files'
-                    ;;
-            """
-        }).joined(separator: "\n")
-        return """
+        """
         #compdef uri
 
         _uri() {
-            local command context state line word
-            typeset -A opt_args
+            local output kind value description
+            local -a request candidates descriptions
+            local -i wants_directories=0
 
-            command=""
-            for word in $words[2,-1]; do
-                case "$word" in
-                    \(CommandCatalog.commands.map(\.name).joined(separator: "|"))|help) command="$word"; break ;;
+            request=("${(@)words[2,$CURRENT]}")
+            output=$(command uri --_complete -- "${request[@]}" 2>/dev/null) || return 0
+
+            while IFS=$'\t' read -r kind value description; do
+                case "$kind" in
+                    candidate)
+                        candidates+=("$value")
+                        descriptions+=("$description")
+                        ;;
+                    directive)
+                        [[ "$value" == directories ]] && wants_directories=1
+                        ;;
                 esac
-            done
+            done <<< "$output"
 
-            if [[ -z "$command" ]]; then
-                _arguments -C -s \\
-                    \(CommandCatalog.rootOptions.map(zshArgument).joined(separator: " \\" + "\n                    ")) \\
-                    '1:command:->command'
-                if [[ "$state" == command ]]; then
-                    _values 'command' \(commands)
-                fi
-                return
+            if (( ${#candidates} )); then
+                compadd -S ' ' -d descriptions -- "${candidates[@]}"
             fi
-
-            case "$command" in
-        \(cases)
-                help)
-                    _values 'command' \(CommandCatalog.commands.map(\.name).joined(separator: " "))
-                    ;;
-            esac
+            (( wants_directories )) && _path_files -/
         }
 
         compdef _uri uri
@@ -124,103 +91,80 @@ struct CompletionGenerator {
     }
 
     private func fishScript() -> String {
-        var lines = [
-            "complete -c uri -f",
-        ]
-        for option in CommandCatalog.rootOptions {
-            lines.append(fishCompletion(option))
+        let registrations = fishValueOptionRegistrations().joined(separator: "\n")
+        return """
+        function __uri_complete
+            set -l words (commandline -opc)
+            set -e words[1]
+            set -l current (commandline -ct)
+
+            command uri --_complete -- $words "$current" 2>/dev/null | while read -l line
+                set -l fields (string split (printf '\\t') -- "$line")
+                switch $fields[1]
+                    case candidate
+                        printf '%s\\t%s\\n' "$fields[2]" "$fields[3]"
+                    case directive
+                        if test "$fields[2]" = directories
+                            __fish_complete_directories "$current"
+                        end
+                end
+            end
+        end
+
+        complete -c uri -f -a '(__uri_complete)'
+        \(registrations)
+        """ + "\n"
+    }
+
+    private func fishValueOptionRegistrations() -> [String] {
+        var registrations = [String]()
+        for option in CommandCatalog.rootOptions where option.acceptsValue {
+            let condition = option.id == .color ? nil : "__fish_use_subcommand"
+            registrations.append(fishValueOptionRegistration(option, condition: condition))
         }
         for command in CommandCatalog.commands {
-            lines.append(
-                "complete -c uri -n '__fish_use_subcommand' -a \(shellQuote(command.name)) -d \(shellQuote(command.abstract))",
-            )
-            for option in command.options + CommandCatalog.globalCommandOptions {
-                lines.append(
-                    fishCompletion(
+            for option in command.options where option.acceptsValue {
+                registrations.append(
+                    fishValueOptionRegistration(
                         option,
                         condition: "__fish_seen_subcommand_from \(command.name)",
                     ),
                 )
             }
         }
-        lines.append(
-            "complete -c uri -n '__fish_use_subcommand' -a help -d 'Show help information for a command.'",
-        )
-        lines.append(
-            "complete -c uri -n '__fish_seen_subcommand_from help' -a \(shellQuote(CommandCatalog.commands.map(\.name).joined(separator: " ")))",
-        )
-        return lines.joined(separator: "\n") + "\n"
+        return registrations
     }
 
-    private func optionTokens(_ options: [OptionDefinition]) -> String {
-        options.flatMap({ option in
-            var values = ["--\(option.longName)"]
-            if let shortName = option.shortName {
-                values.append("-\(shortName)")
-            }
-            return values
-        }).joined(separator: " ")
-    }
-
-    private func zshArgument(_ option: OptionDefinition) -> String {
-        let description = zshEscape(option.help)
-        let names: String
-        if let shortName = option.shortName {
-            names = "'{-\(shortName),--\(option.longName)}[\(description)]"
-        }
-        else {
-            names = "'--\(option.longName)[\(description)]"
-        }
-        switch option.valueKind {
-        case .flag:
-            return names + "'"
-        case .value(let name, let values):
-            let completion = values.isEmpty ? "" : ":(\(values.joined(separator: " ")))"
-            return names + ":\(zshEscape(name))\(completion)'"
-        case .optionalValue(let name):
-            return names + "::\(zshEscape(name)):'"
-        }
-    }
-
-    private func fishCompletion(
+    private func fishValueOptionRegistration(
         _ option: OptionDefinition,
-        condition: String? = nil,
+        condition: String?,
     ) -> String {
-        var components = ["complete", "-c", "uri"]
+        var components = ["complete", "-c", "uri", "-f"]
         if let condition {
-            components += ["-n", shellQuote(condition)]
+            components += ["-n", fishQuote(condition)]
         }
-        components += ["-l", option.longName]
-        if let shortName = option.shortName {
-            components += ["-s", String(shortName)]
-        }
+        components += [
+            "-l", option.longName,
+            "-r",
+            "-a", "'(__uri_complete)'",
+        ]
         if !option.help.isEmpty {
-            components += ["-d", shellQuote(option.help)]
-        }
-        switch option.valueKind {
-        case .flag:
-            break
-        case .value(_, let values):
-            components.append("-r")
-            if !values.isEmpty {
-                components += ["-a", shellQuote(values.joined(separator: " "))]
-            }
-        case .optionalValue:
-            break
+            components += ["-d", fishQuote(option.help)]
         }
         return components.joined(separator: " ")
     }
 
-    private func shellQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    private func fishQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "\\'"))'"
     }
+}
 
-    private func zshEscape(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: ":", with: "\\:")
-            .replacingOccurrences(of: "[", with: "\\[")
-            .replacingOccurrences(of: "]", with: "\\]")
-            .replacingOccurrences(of: "'", with: "'\\''")
+private extension OptionDefinition {
+
+    var acceptsValue: Bool {
+        guard case .value = valueKind else {
+            return false
+        }
+        return true
     }
 }

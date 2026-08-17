@@ -1,15 +1,125 @@
+enum CommandID: String, CaseIterable, Equatable {
+
+    case initialize = "init"
+
+    case add
+
+    case remove
+
+    case exclude
+
+    case include
+
+    case list
+
+    case graph
+
+    case expand
+
+    case apply
+
+    case collapse
+
+    case vanish
+}
+
+enum OptionID: Equatable, Hashable {
+
+    case upstream
+    case branchPrefix
+    case committerName
+    case committerEmail
+    case name
+    case description
+    case dependencies
+    case developmentDependencies
+    case inherits
+    case inheritsUpstream
+    case force
+    case listEphemeral
+    case includeDevelopment
+    case format
+    case continueOperation
+    case abortOperation
+    case noDevelopment
+    case recursive
+    case discard
+    case color
+    case help
+    case version
+    case completion
+
+    var longName: String {
+        switch self {
+        case .upstream: "upstream"
+        case .branchPrefix: "branch-prefix"
+        case .committerName: "committer-name"
+        case .committerEmail: "committer-email"
+        case .name: "name"
+        case .description: "description"
+        case .dependencies: "dependencies"
+        case .developmentDependencies: "dev-dependencies"
+        case .inherits: "inherits"
+        case .inheritsUpstream: "inherits-upstream"
+        case .force: "force"
+        case .listEphemeral: "ephemeral"
+        case .includeDevelopment: "include-dev"
+        case .format: "format"
+        case .continueOperation: "continue"
+        case .abortOperation: "abort"
+        case .noDevelopment: "no-dev"
+        case .recursive: "recursive"
+        case .discard: "discard"
+        case .color: "color"
+        case .help: "help"
+        case .version: "version"
+        case .completion: "generate-completion-script"
+        }
+    }
+}
+
+enum ArgumentID: String, Equatable, Hashable {
+
+    case source = "SOURCE"
+    case version = "VERSION"
+    case patchset = "PATCHSET"
+    case feature = "FEATURE"
+    case target = "TARGET"
+    case id = "ID"
+}
+
 enum OptionValueKind: Equatable {
 
     case flag
 
     case value(name: String, allowedValues: [String] = [])
+}
 
-    case optionalValue(name: String)
+struct EphemeralTargetDefinition: Equatable {
+
+    let longName: String
+
+    let valueName: String
+
+    let help: String
+
+    var token: String {
+        "--\(longName)"
+    }
+
+    var synopsis: String {
+        "\(token) [\(valueName)]"
+    }
+}
+
+struct TargetDefinition: Equatable {
+
+    let ephemeral: EphemeralTargetDefinition?
 }
 
 struct OptionDefinition: Equatable {
 
-    let longName: String
+    let id: OptionID
 
     let shortName: Character?
 
@@ -18,15 +128,19 @@ struct OptionDefinition: Equatable {
     let help: String
 
     init(
-        _ longName: String,
+        _ id: OptionID,
         shortName: Character? = nil,
         valueKind: OptionValueKind = .flag,
         help: String = "",
     ) {
-        self.longName = longName
+        self.id = id
         self.shortName = shortName
         self.valueKind = valueKind
         self.help = help
+    }
+
+    var longName: String {
+        id.longName
     }
 
     var synopsis: String {
@@ -42,33 +156,156 @@ struct OptionDefinition: Equatable {
             return names
         case .value(let name, _):
             return "\(names) <\(name)>"
-        case .optionalValue(let name):
-            return "\(names) [<\(name)>]"
         }
     }
 }
 
+enum ArgumentValueKind: Equatable {
+
+    case scalar
+
+    case source
+
+    case target(TargetDefinition)
+}
+
 struct ArgumentDefinition: Equatable {
 
-    let synopsis: String
+    let id: ArgumentID
+
+    let optional: Bool
+
+    let valueKind: ArgumentValueKind
 
     let help: String
+
+    var usage: String {
+        optional ? "[\(id.rawValue)]" : id.rawValue
+    }
+
+    var ephemeralTarget: EphemeralTargetDefinition? {
+        guard case .target(let target) = valueKind else {
+            return nil
+        }
+        return target.ephemeral
+    }
+}
+
+enum CommandFormID: Equatable {
+
+    case primary
+
+    case recovery
+
+    case ephemeralList
+}
+
+enum CommandFormElement: Equatable {
+
+    case argument(ArgumentDefinition)
+
+    case requiredOption(OptionID)
+
+    case oneOf([OptionID])
+}
+
+struct CommandForm: Equatable {
+
+    let id: CommandFormID
+
+    let elements: [CommandFormElement]
+
+    let allowedOptions: Set<OptionID>
+
+    var arguments: [ArgumentDefinition] {
+        elements.compactMap({ element in
+            guard case .argument(let argument) = element else {
+                return nil
+            }
+            return argument
+        })
+    }
+
+    var ephemeralTarget: EphemeralTargetDefinition? {
+        arguments.compactMap(\.ephemeralTarget).first
+    }
 }
 
 struct CommandDefinition: Equatable {
 
-    let name: String
+    let id: CommandID
 
     let abstract: String
 
-    let usages: [String]
-
-    let arguments: [ArgumentDefinition]
+    let forms: [CommandForm]
 
     let options: [OptionDefinition]
 
-    var supportsFinalEphemeralSelector: Bool {
-        ["expand", "apply", "collapse"].contains(name)
+    var name: String {
+        id.rawValue
+    }
+
+    var arguments: [ArgumentDefinition] {
+        var seen = Set<ArgumentID>()
+        return forms.flatMap(\.arguments).filter({ seen.insert($0.id).inserted })
+    }
+
+    var ephemeralTarget: EphemeralTargetDefinition? {
+        forms.compactMap(\.ephemeralTarget).first
+    }
+}
+
+enum RootFormElement: Equatable {
+
+    case optionalOption(OptionID)
+
+    case command
+}
+
+struct RootCommandDefinition: Equatable {
+
+    let elements: [RootFormElement]
+}
+
+struct UsageRenderer {
+
+    func render(_ command: CommandDefinition) -> [String] {
+        command.forms.map({ form in
+            (["uri", command.name] + form.elements.map(render)).joined(separator: " ")
+        })
+    }
+
+    func renderRoot(_ root: RootCommandDefinition) -> String {
+        (["uri"] + root.elements.map(render)).joined(separator: " ")
+    }
+
+    private func render(_ element: CommandFormElement) -> String {
+        switch element {
+        case .argument(let argument):
+            return argument.usage
+        case .requiredOption(let option):
+            return "--\(option.longName)"
+        case .oneOf(let options):
+            return "(" + options.map({ "--\($0.longName)" }).joined(separator: "|") + ")"
+        }
+    }
+
+    private func render(_ element: RootFormElement) -> String {
+        switch element {
+        case .optionalOption(let option):
+            guard let definition = CommandCatalog.rootOptions.first(where: { $0.id == option })
+            else {
+                fatalError("Every root form option must have a definition.")
+            }
+            switch definition.valueKind {
+            case .flag:
+                return "[--\(option.longName)]"
+            case .value(let name, _):
+                return "[--\(option.longName) <\(name)>]"
+            }
+        case .command:
+            return "<command>"
+        }
     }
 }
 
@@ -76,9 +313,13 @@ enum CommandCatalog {
 
     static let abstract = "Reconstruct, apply, and author portable Git patchsets."
 
+    static let rootForm = RootCommandDefinition(
+        elements: [.optionalOption(.color), .command],
+    )
+
     static let colorOption =
         OptionDefinition(
-            "color",
+            .color,
             valueKind: .value(
                 name: "when",
                 allowedValues: ColorMode.allCases.map(\.rawValue),
@@ -88,20 +329,20 @@ enum CommandCatalog {
 
     static let helpOption =
         OptionDefinition(
-            "help",
+            .help,
             shortName: "h",
             help: "Show help information.",
         )
 
     static let versionOption =
         OptionDefinition(
-            "version",
+            .version,
             help: "Show the version.",
         )
 
     static let completionOption =
         OptionDefinition(
-            "generate-completion-script",
+            .completion,
             valueKind: .value(
                 name: "shell",
                 allowedValues: CompletionShell.allCases.map(\.rawValue),
@@ -111,241 +352,270 @@ enum CommandCatalog {
 
     static let commands = [
         CommandDefinition(
-            name: "init",
+            id: .initialize,
             abstract: "Initialize a patchset root or add an upstream version.",
-            usages: ["uri init [SOURCE] [VERSION] [options]"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] [VERSION]",
-                    help: "Optional local SOURCE directory followed by an optional VERSION.",
-                ),
+            forms: [
+                form(
+                    [source(), argument(.version, optional: true)],
+                    options: [.upstream, .branchPrefix, .committerName, .committerEmail],
+                )
             ],
             options: [
                 .init(
-                    "upstream",
+                    .upstream,
                     valueKind: .value(name: "url"),
                     help: "Upstream Git URL for a new root.",
                 ),
                 .init(
-                    "branch-prefix",
+                    .branchPrefix,
                     valueKind: .value(name: "prefix"),
                     help: "Generated branch prefix. (default: uri)",
                 ),
                 .init(
-                    "committer-name",
+                    .committerName,
                     valueKind: .value(name: "name"),
                     help: "Explicit committer name; requires --committer-email.",
                 ),
                 .init(
-                    "committer-email",
+                    .committerEmail,
                     valueKind: .value(name: "email"),
                     help: "Explicit committer email; requires --committer-name.",
                 ),
             ],
         ),
         CommandDefinition(
-            name: "add",
+            id: .add,
             abstract: "Add a patchset or feature.",
-            usages: ["uri add [SOURCE] VERSION PATCHSET [FEATURE] [options]"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET [FEATURE]",
-                    help: "Patchset coordinates and an optional feature ID.",
-                ),
+            forms: [
+                form(
+                    [
+                        source(),
+                        argument(.version),
+                        argument(.patchset),
+                        argument(.feature, optional: true),
+                    ],
+                    options: [
+                        .name, .description, .dependencies, .developmentDependencies,
+                        .inherits, .inheritsUpstream,
+                    ],
+                )
             ],
             options: [
-                .init("name", valueKind: .value(name: "name")),
-                .init("description", valueKind: .value(name: "description")),
-                .init("dependencies", valueKind: .value(name: "ids")),
-                .init("dev-dependencies", valueKind: .value(name: "ids")),
-                .init("inherits", valueKind: .value(name: "patchset")),
-                .init("inherits-upstream", valueKind: .value(name: "version")),
+                .init(.name, valueKind: .value(name: "name")),
+                .init(.description, valueKind: .value(name: "description")),
+                .init(.dependencies, valueKind: .value(name: "ids")),
+                .init(.developmentDependencies, valueKind: .value(name: "ids")),
+                .init(.inherits, valueKind: .value(name: "patchset")),
+                .init(.inheritsUpstream, valueKind: .value(name: "version")),
             ],
         ),
         CommandDefinition(
-            name: "remove",
+            id: .remove,
             abstract: "Remove a version, patchset, or feature.",
-            usages: ["uri remove [SOURCE] VERSION [PATCHSET] [FEATURE] [options]"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION [PATCHSET] [FEATURE]",
-                    help: "The local hierarchy to remove.",
-                ),
+            forms: [
+                form(
+                    [
+                        source(),
+                        argument(.version),
+                        argument(.patchset, optional: true),
+                        argument(.feature, optional: true),
+                    ],
+                    options: [.force],
+                )
             ],
             options: [
-                .init(
-                    "force",
-                    shortName: "f",
-                    help: "Skip the confirmation prompt.",
-                ),
+                .init(.force, shortName: "f", help: "Skip the confirmation prompt.")
             ],
         ),
         CommandDefinition(
-            name: "exclude",
+            id: .exclude,
             abstract: "Exclude an inherited feature.",
-            usages: ["uri exclude [SOURCE] VERSION PATCHSET FEATURE"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET FEATURE",
-                    help: "The inherited feature to exclude.",
-                ),
+            forms: [
+                form([
+                    source(), argument(.version), argument(.patchset), argument(.feature),
+                ])
             ],
             options: [],
         ),
         CommandDefinition(
-            name: "include",
+            id: .include,
             abstract: "Re-include an excluded feature.",
-            usages: ["uri include [SOURCE] VERSION PATCHSET FEATURE"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET FEATURE",
-                    help: "The excluded feature to include again.",
-                ),
+            forms: [
+                form([
+                    source(), argument(.version), argument(.patchset), argument(.feature),
+                ])
             ],
             options: [],
         ),
         CommandDefinition(
-            name: "list",
+            id: .list,
             abstract: "List patchset versions, patchsets, features, or ephemeral workspaces.",
-            usages: [
-                "uri list [SOURCE] [VERSION] [PATCHSET]",
-                "uri list --ephemeral [ID] [--path]",
-            ],
-            arguments: [
+            forms: [
+                form([
+                    source(),
+                    argument(.version, optional: true),
+                    argument(.patchset, optional: true),
+                ]),
                 .init(
-                    synopsis: "[SOURCE] [VERSION] [PATCHSET]",
-                    help: "The patchset hierarchy to list.",
+                    id: .ephemeralList,
+                    elements: [.requiredOption(.listEphemeral)],
+                    allowedOptions: [.listEphemeral],
                 ),
             ],
             options: [
-                .init(
-                    "ephemeral",
-                    valueKind: .optionalValue(name: "id"),
-                    help: "List ephemeral workspaces, or inspect one ID.",
-                ),
-                .init(
-                    "path",
-                    help: "With --ephemeral ID, print only its repository path.",
-                ),
+                .init(.listEphemeral, help: "List all ephemeral workspaces.")
             ],
         ),
         CommandDefinition(
-            name: "graph",
+            id: .graph,
             abstract: "Print a feature dependency graph.",
-            usages: ["uri graph [SOURCE] VERSION PATCHSET [options]"],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET",
-                    help: "The patchset whose dependencies should be printed.",
-                ),
+            forms: [
+                form(
+                    [source(), argument(.version), argument(.patchset)],
+                    options: [.includeDevelopment, .format],
+                )
             ],
             options: [
+                .init(.includeDevelopment, help: "Include development dependencies."),
                 .init(
-                    "include-dev",
-                    help: "Include development dependencies.",
-                ),
-                .init(
-                    "format",
+                    .format,
                     valueKind: .value(name: "format", allowedValues: ["tree", "dot"]),
                     help: "Output format: tree or dot. (default: tree)",
                 ),
             ],
         ),
         CommandDefinition(
-            name: "expand",
+            id: .expand,
             abstract: "Expand one feature and its dependencies into editable branches.",
-            usages: [
-                "uri expand [SOURCE] VERSION PATCHSET FEATURE [TARGET] [options]",
-                "uri expand [TARGET] (--continue | --abort) [--ephemeral [ID]]",
-            ],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET FEATURE [TARGET]",
-                    help: "Start arguments, or an optional recovery TARGET.",
+            forms: [
+                form(
+                    [
+                        source(), argument(.version), argument(.patchset), argument(.feature),
+                        target(),
+                    ],
+                    options: [.force, .noDevelopment],
                 ),
+                recoveryForm(),
             ],
             options: workflowOptions + [
-                .init("force", help: "Replace colliding generated branches."),
-                .init("no-dev", help: "Exclude development dependencies."),
+                .init(.force, help: "Replace colliding generated branches."),
+                .init(.noDevelopment, help: "Exclude development dependencies."),
             ],
         ),
         CommandDefinition(
-            name: "apply",
+            id: .apply,
             abstract: "Apply the complete regular dependency graph.",
-            usages: [
-                "uri apply [SOURCE] VERSION PATCHSET [TARGET] [options]",
-                "uri apply [TARGET] (--continue | --abort) [--ephemeral [ID]]",
-            ],
-            arguments: [
-                .init(
-                    synopsis: "[SOURCE] VERSION PATCHSET [TARGET]",
-                    help: "Start arguments, or an optional recovery TARGET.",
-                ),
+            forms: [
+                form([source(), argument(.version), argument(.patchset), target()]),
+                recoveryForm(),
             ],
             options: workflowOptions,
         ),
         CommandDefinition(
-            name: "collapse",
+            id: .collapse,
             abstract: "Reconstruct patches from a completed expansion.",
-            usages: ["uri collapse [TARGET] [options] [--ephemeral [ID]]"],
-            arguments: [
-                .init(
-                    synopsis: "[TARGET]",
-                    help: "Expansion state supplies SOURCE, VERSION, PATCHSET, and FEATURE.",
-                ),
+            forms: [
+                form([target()], options: [.recursive, .discard])
             ],
             options: [
-                .init("recursive", help: "Collapse dependency features recursively."),
-                .init("discard", help: "Discard expansion state without writing patches."),
-                ephemeralOption,
+                .init(.recursive, help: "Collapse dependency features recursively."),
+                .init(.discard, help: "Discard expansion state without writing patches."),
             ],
         ),
         CommandDefinition(
-            name: "vanish",
+            id: .vanish,
             abstract: "Safely remove an ephemeral workspace.",
-            usages: ["uri vanish [ID] [--force]"],
-            arguments: [
-                .init(
-                    synopsis: "[ID]",
-                    help: "Omit to auto-select one workspace or prompt on a TTY.",
-                ),
+            forms: [
+                form([argument(.id, optional: true)], options: [.force])
             ],
             options: [
-                .init(
-                    "force",
-                    help: "Ignore dirty worktree and changed-HEAD checks.",
-                ),
+                .init(.force, help: "Ignore dirty worktree and changed-HEAD checks.")
             ],
         ),
     ]
 
-    static let rootOptions = [
-        colorOption,
-        completionOption,
-        versionOption,
-        helpOption,
-    ]
+    static let rootOptions = [colorOption, completionOption, versionOption, helpOption]
 
-    static let globalCommandOptions = [
-        colorOption,
-        versionOption,
-        helpOption,
-    ]
+    static let globalCommandOptions = [colorOption, versionOption, helpOption]
 
     static func command(named name: String) -> CommandDefinition? {
-        commands.first(where: { $0.name == name })
+        guard let id = CommandID(rawValue: name) else {
+            return nil
+        }
+        return commands.first(where: { $0.id == id })
     }
 
-    private static let ephemeralOption =
-        OptionDefinition(
-            "ephemeral",
-            valueKind: .optionalValue(name: "id"),
-            help: "Use an ephemeral TARGET, optionally with ID. This selector must be last.",
-        )
-
     private static let workflowOptions = [
-        OptionDefinition("continue", help: "Continue after resolving a conflict."),
-        OptionDefinition("abort", help: "Abort the operation and restore its starting state."),
-        ephemeralOption,
+        OptionDefinition(.continueOperation, help: "Continue after resolving a conflict."),
+        OptionDefinition(
+            .abortOperation,
+            help: "Abort the operation and restore its starting state.",
+        ),
     ]
+
+    private static let workflowEphemeralTarget = EphemeralTargetDefinition(
+        longName: "ephemeral",
+        valueName: "ID",
+        help: "Use an ephemeral TARGET, optionally with ID.",
+    )
+
+    private static func form(
+        _ arguments: [ArgumentDefinition],
+        options: Set<OptionID> = [],
+    ) -> CommandForm {
+        .init(
+            id: .primary,
+            elements: arguments.map(CommandFormElement.argument),
+            allowedOptions: options,
+        )
+    }
+
+    private static func recoveryForm() -> CommandForm {
+        .init(
+            id: .recovery,
+            elements: [
+                .argument(target()),
+                .oneOf([.continueOperation, .abortOperation]),
+            ],
+            allowedOptions: [.continueOperation, .abortOperation],
+        )
+    }
+
+    private static func source() -> ArgumentDefinition {
+        .init(
+            id: .source,
+            optional: true,
+            valueKind: .source,
+            help: "An explicit local path or supported source URL; omit to discover it.",
+        )
+    }
+
+    private static func target() -> ArgumentDefinition {
+        .init(
+            id: .target,
+            optional: true,
+            valueKind: .target(.init(ephemeral: workflowEphemeralTarget)),
+            help: "A path or \(workflowEphemeralTarget.synopsis); omit to discover the current worktree.",
+        )
+    }
+
+    private static func argument(
+        _ id: ArgumentID,
+        optional: Bool = false,
+    ) -> ArgumentDefinition {
+        let help: String
+        switch id {
+        case .version:
+            help = "The upstream version."
+        case .patchset:
+            help = "The patchset version."
+        case .feature:
+            help = "The feature ID."
+        case .id:
+            help = "An ephemeral workspace ID; omit to auto-select or prompt on a TTY."
+        case .source, .target:
+            fatalError("SOURCE and TARGET use their specialized definitions.")
+        }
+        return .init(id: id, optional: optional, valueKind: .scalar, help: help)
+    }
 }

@@ -3,9 +3,16 @@ import URI
 import URIModel
 import URIPatchset
 
-enum CLI {
+enum TargetArgumentValue: Equatable {
 
-    static let automaticEphemeralID = "__URI_AUTOMATIC_EPHEMERAL_ID__"
+    case omitted
+
+    case path(String)
+
+    case ephemeral(id: String?)
+}
+
+enum CLI {
 
     static var currentDirectoryURL: URL {
         URL(
@@ -69,27 +76,34 @@ enum CLI {
         })
     }
 
-    static func ephemeralRequest(_ value: String?) throws -> EphemeralRequest {
-        guard let value else {
+    static func targetURL(_ target: TargetArgumentValue) -> URL? {
+        guard case .path(let value) = target else {
+            return nil
+        }
+        return targetURL(value)
+    }
+
+    static func ephemeralRequest(_ target: TargetArgumentValue) throws -> EphemeralRequest {
+        guard case .ephemeral(let id) = target else {
             return .none
         }
-        if value == automaticEphemeralID {
+        guard let id else {
             return .automatic
         }
-        try EphemeralWorkspaceManager.validateID(value)
-        return .named(value)
+        try EphemeralWorkspaceManager.validateID(id)
+        return .named(id)
     }
 
     static func selectedExistingEphemeralID(
-        _ value: String?,
+        _ target: TargetArgumentValue,
         terminal: Terminal,
     ) throws -> String? {
-        guard let value else {
+        guard case .ephemeral(let id) = target else {
             return nil
         }
-        if value != automaticEphemeralID {
-            try EphemeralWorkspaceManager.validateID(value)
-            return value
+        if let id {
+            try EphemeralWorkspaceManager.validateID(id)
+            return id
         }
         return try selectEphemeralID(terminal: terminal)
     }

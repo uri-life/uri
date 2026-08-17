@@ -23,6 +23,17 @@ struct URICommand {
         arguments: [String],
         terminalFactory: (ColorMode) -> Terminal,
     ) async -> Int32 {
+        if arguments.first == "--_complete" {
+            let terminal = terminalFactory(.never)
+            guard arguments.dropFirst().first == "--" else {
+                return 0
+            }
+            for record in CompletionEngine().complete(Array(arguments.dropFirst(2))) {
+                terminal.output(record.encoded, machineReadable: true)
+            }
+            return 0
+        }
+
         let parser = CommandParser()
         let fallbackColorMode = parser.preferredColorMode(in: arguments)
         do {
@@ -81,7 +92,7 @@ struct URICommand {
     ) {
         let label = terminal.styled("usage:", as: .bold, to: .standardError)
         if let commandName, let command = CommandCatalog.command(named: commandName) {
-            for usage in command.usages {
+            for usage in UsageRenderer().render(command) {
                 terminal.errorOutput(
                     "\(label) \(terminal.styled(usage, as: .cyan, to: .standardError))",
                 )
@@ -90,7 +101,7 @@ struct URICommand {
         }
         else {
             terminal.errorOutput(
-                "\(label) \(terminal.styled("uri [--color <when>] <command>", as: .cyan, to: .standardError))",
+                "\(label) \(terminal.styled(UsageRenderer().renderRoot(CommandCatalog.rootForm), as: .cyan, to: .standardError))",
             )
             terminal.errorOutput("Run 'uri --help' for more information.")
         }

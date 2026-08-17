@@ -1,5 +1,4 @@
 import Testing
-import URI
 
 @testable
 import URICommand
@@ -18,7 +17,7 @@ struct CommandParserTests {
     }
 
     @Test
-    func `every command accepts its agreed primary and recovery syntax`() {
+    func `every command accepts its primary and recovery forms`() {
         let examples = [
             ["init", "./patches", "v1", "--upstream=https://example.com/project.git"],
             ["add", "--name", "Feature", "./patches", "v1", "p1", "feature"],
@@ -26,7 +25,7 @@ struct CommandParserTests {
             ["exclude", "./patches", "v1", "p1", "feature"],
             ["include", "./patches", "v1", "p1", "feature"],
             ["list", "./patches", "v1", "p1"],
-            ["list", "--ephemeral", "peach", "--path"],
+            ["list", "--ephemeral"],
             ["graph", "v1", "--include-dev", "p1", "--format=dot"],
             ["expand", "--no-dev", "v1", "p1", "feature", "./target"],
             ["expand", "./target", "--continue"],
@@ -46,6 +45,125 @@ struct CommandParserTests {
     }
 
     @Test
+    func `workflow TARGET distinguishes omitted path automatic named and equals forms`() throws {
+        #expect(try parsedExpand(["expand", "v1", "p1", "feature"]).target == .omitted)
+        #expect(
+            try parsedExpand(["expand", "v1", "p1", "feature", "./target"]).target
+                == .path("./target"),
+        )
+        #expect(
+            try parsedExpand(["expand", "v1", "p1", "feature", "--ephemeral"]).target
+                == .ephemeral(id: nil),
+        )
+        #expect(
+            try parsedExpand([
+                "expand", "v1", "p1", "feature", "--ephemeral", "peach",
+            ]).target == .ephemeral(id: "peach"),
+        )
+        #expect(
+            try parsedExpand([
+                "expand", "v1", "p1", "feature", "--ephemeral=plum",
+            ]).target == .ephemeral(id: "plum"),
+        )
+    }
+
+    @Test
+    func `workflow options may precede or follow an ephemeral TARGET`() throws {
+        let applyTargetFirst = try parsedApply([
+            "apply", "--ephemeral", "peach", "--continue",
+        ])
+        let applyOptionFirst = try parsedApply([
+            "apply", "--continue", "--ephemeral", "peach",
+        ])
+        let expand = try parsedExpand([
+            "expand", "v1", "p1", "feature", "--ephemeral", "peach", "--no-dev",
+        ])
+        let collapse = try parsedCollapse([
+            "collapse", "--ephemeral", "peach", "--discard",
+        ])
+
+        #expect(applyTargetFirst.target == .ephemeral(id: "peach"))
+        #expect(applyTargetFirst.continueOperation)
+        #expect(applyOptionFirst.target == .ephemeral(id: "peach"))
+        #expect(applyOptionFirst.continueOperation)
+        #expect(expand.target == .ephemeral(id: "peach"))
+        #expect(expand.noDevelopmentDependencies)
+        #expect(collapse.target == .ephemeral(id: "peach"))
+        #expect(collapse.discard)
+    }
+
+    @Test
+    func `double dash makes ephemeral spelling a literal path TARGET`() throws {
+        let apply = try parsedApply(["apply", "v1", "p1", "--", "--ephemeral"])
+        let collapse = try parsedCollapse(["collapse", "--", "--ephemeral"])
+        let invocation = try CommandParser().parse(["vanish", "--", "--peach"])
+        guard case .run(.vanish(let vanish)) = invocation.action else {
+            Issue.record("Expected vanish command.")
+            return
+        }
+
+        #expect(apply.target == .path("--ephemeral"))
+        #expect(collapse.target == .path("--ephemeral"))
+        #expect(vanish.id == "--peach")
+    }
+
+    @Test
+    func `ephemeral TARGET rejects ordering and duplication that cannot fill its positional slot`()
+    {
+        let examples = [
+            ["apply", "--ephemeral", "peach", "v1", "p1"],
+            ["expand", "--ephemeral=peach", "v1", "p1", "feature"],
+            ["apply", "v1", "p1", "./target", "--ephemeral=peach"],
+            ["apply", "v1", "p1", "--ephemeral=peach", "./target"],
+            ["apply", "v1", "p1", "first", "second"],
+            ["collapse", "./target", "--ephemeral=peach"],
+            ["collapse", "--ephemeral=peach", "--"],
+            ["apply", "v1", "p1", "--ephemeral=peach", "--", "trailing"],
+            ["apply", "v1", "p1", "--ephemeral=123-invalid"],
+        ]
+
+        for arguments in examples {
+            #expect(throws: CommandUsageError.self, "Accepted: \(arguments.joined(separator: " "))")
+            {
+                _ = try CommandParser().parse(arguments)
+            }
+        }
+    }
+
+    @Test
+    func `list ephemeral is a value-less mode distinct from workflow TARGET`() throws {
+        let invocation = try CommandParser().parse(["list", "--ephemeral"])
+        guard case .run(.list(let command)) = invocation.action else {
+            Issue.record("Expected list command.")
+            return
+        }
+        #expect(command.mode == .ephemeral)
+
+        let invalidExamples = [
+            ["list", "--ephemeral", "peach"],
+            ["list", "--ephemeral=peach"],
+            ["list", "--path"],
+            ["list", "v1", "p1", "--ephemeral"],
+            ["list", "--ephemeral", "--", "peach"],
+        ]
+        for arguments in invalidExamples {
+            #expect(throws: CommandUsageError.self) {
+                _ = try CommandParser().parse(arguments)
+            }
+        }
+    }
+
+    @Test
+    func `hierarchy list preserves its positional values`() throws {
+        let invocation = try CommandParser().parse(["list", "./patches", "v1", "p1"])
+        guard case .run(.list(let command)) = invocation.action else {
+            Issue.record("Expected list command.")
+            return
+        }
+        #expect(command.mode == .hierarchy(["./patches", "v1", "p1"]))
+    }
+
+    @Test
     func `global color is accepted before or within a command`() throws {
         let before = try CommandParser().parse([
             "--color", "always", "apply", "v1", "p1",
@@ -59,7 +177,9 @@ struct CommandParserTests {
     }
 
     @Test
-    func `root actions accept interspersed color and reject conflicts or trailing arguments`() throws {
+    func `root actions accept interspersed color and reject conflicts or trailing arguments`()
+        throws
+    {
         let version = try CommandParser().parse(["--version", "--color=always"])
         let completion = try CommandParser().parse([
             "--generate-completion-script", "fish", "--color", "never",
@@ -82,29 +202,7 @@ struct CommandParserTests {
     }
 
     @Test
-    func `ephemeral selector distinguishes automatic and explicit IDs`() throws {
-        let automatic = try parsedExpand(["expand", "v1", "p1", "feature", "--ephemeral"])
-        let explicit = try parsedExpand([
-            "expand", "v1", "p1", "feature", "--ephemeral=peach",
-        ])
-
-        #expect(automatic.ephemeral == CLI.automaticEphemeralID)
-        #expect(explicit.ephemeral == "peach")
-    }
-
-    @Test
-    func `double dash preserves a positional beginning with a hyphen`() throws {
-        let invocation = try CommandParser().parse(["vanish", "--", "--peach"])
-        guard case .run(.vanish(let command)) = invocation.action else {
-            Issue.record("Expected vanish command.")
-            return
-        }
-
-        #expect(command.id == "--peach")
-    }
-
-    @Test
-    func `invalid option forms and command modes are usage errors`() {
+    func `unknown duplicate missing and mutually exclusive options are usage errors`() {
         let examples = [
             ["unknown"],
             ["apply", "v1", "p1", "--unknown"],
@@ -115,24 +213,19 @@ struct CommandParserTests {
             ["apply", "--continue", "--abort"],
             ["expand", "--continue", "--force"],
             ["collapse", "--recursive", "--discard"],
-            ["apply", "v1", "p1", "./target", "--ephemeral"],
-            ["apply", "v1", "p1", "--ephemeral", "peach", "--color", "never"],
-            ["list", "--ephemeral", "--path"],
             ["add", "v1"],
         ]
 
         for arguments in examples {
-            #expect(
-                throws: CommandUsageError.self,
-                "Accepted: \(arguments.joined(separator: " "))",
-            ) {
+            #expect(throws: CommandUsageError.self, "Accepted: \(arguments.joined(separator: " "))")
+            {
                 _ = try CommandParser().parse(arguments)
             }
         }
     }
 
     @Test
-    func `every command rejects positional counts outside its accepted modes`() {
+    func `every command rejects positional counts outside its forms`() {
         let examples = [
             ["init", "version", "extra"],
             ["add", "v1"],
@@ -155,10 +248,8 @@ struct CommandParserTests {
         ]
 
         for arguments in examples {
-            #expect(
-                throws: CommandUsageError.self,
-                "Accepted: \(arguments.joined(separator: " "))",
-            ) {
+            #expect(throws: CommandUsageError.self, "Accepted: \(arguments.joined(separator: " "))")
+            {
                 _ = try CommandParser().parse(arguments)
             }
         }
@@ -177,7 +268,23 @@ struct CommandParserTests {
     private func parsedExpand(_ arguments: [String]) throws -> Expand {
         let invocation = try CommandParser().parse(arguments)
         guard case .run(.expand(let command)) = invocation.action else {
-            throw URIError.invalidArguments("Expected expand command.")
+            throw CommandUsageError(message: "Expected expand command.", commandName: "expand")
+        }
+        return command
+    }
+
+    private func parsedApply(_ arguments: [String]) throws -> Apply {
+        let invocation = try CommandParser().parse(arguments)
+        guard case .run(.apply(let command)) = invocation.action else {
+            throw CommandUsageError(message: "Expected apply command.", commandName: "apply")
+        }
+        return command
+    }
+
+    private func parsedCollapse(_ arguments: [String]) throws -> Collapse {
+        let invocation = try CommandParser().parse(arguments)
+        guard case .run(.collapse(let command)) = invocation.action else {
+            throw CommandUsageError(message: "Expected collapse command.", commandName: "collapse")
         }
         return command
     }

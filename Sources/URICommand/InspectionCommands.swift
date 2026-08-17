@@ -5,24 +5,31 @@ import URIPatchset
 
 struct List {
 
-    let values: [String]
+    enum Mode: Equatable {
 
-    let ephemeral: String?
+        case hierarchy([String])
 
-    let path: Bool
+        case ephemeral
+    }
+
+    let mode: Mode
+
+    private let ephemeralListings: () throws -> [EphemeralListing]
+
+    init(
+        mode: Mode,
+        ephemeralListings: @escaping () throws -> [EphemeralListing] = {
+            try EphemeralWorkspaceManager().list()
+        },
+    ) {
+        self.mode = mode
+        self.ephemeralListings = ephemeralListings
+    }
 
     func run(terminal: Terminal) async throws {
-        if let ephemeral {
-            guard values.isEmpty else {
-                throw URIError.invalidArguments(
-                    "Patchset SOURCE arguments cannot be combined with --ephemeral.",
-                )
-            }
-            try listEphemeral(ephemeral, terminal: terminal)
+        guard case .hierarchy(let values) = mode else {
+            try listEphemeral(terminal: terminal)
             return
-        }
-        guard !path else {
-            throw URIError.invalidArguments("--path requires --ephemeral ID.")
         }
         let (source, arguments) = try CLI.sourceAndArguments(values)
         guard arguments.count <= 2 else {
@@ -33,7 +40,8 @@ struct List {
                 "Static HTTP sources cannot enumerate versions or patchsets without an index. Specify VERSION and PATCHSET.",
             )
         }
-        let reference = arguments.count == 2
+        let reference =
+            arguments.count == 2
             ? try PatchsetReference(
                 upstreamVersion: arguments[0],
                 patchsetVersion: arguments[1],
@@ -61,60 +69,28 @@ struct List {
         }
     }
 
-    private func listEphemeral(
-        _ value: String,
-        terminal: Terminal,
-    ) throws {
-        let manager = EphemeralWorkspaceManager()
-        if value == CLI.automaticEphemeralID {
-            guard !path else {
-                throw URIError.invalidArguments("--path requires an explicit ephemeral ID.")
-            }
-            let listings = try manager.list()
-            if !listings.isEmpty {
-                terminal.output(
-                    "ID\tMODE\tVERSION\tPATCHSET\tFEATURE\tSOURCE\tPATH",
-                    machineReadable: true,
-                )
-            }
-            for listing in listings {
-                let state = listing.state
-                terminal.output(
-                    [
-                        listing.id,
-                        state.mode.rawValue,
-                        state.upstreamVersion,
-                        state.patchsetVersion,
-                        state.feature ?? "-",
-                        state.source.original,
-                        listing.path,
-                    ].joined(separator: "\t"),
-                    machineReadable: true,
-                )
-            }
-            return
+    private func listEphemeral(terminal: Terminal) throws {
+        let listings = try ephemeralListings()
+        if !listings.isEmpty {
+            terminal.output(
+                "ID\tMODE\tVERSION\tPATCHSET\tFEATURE\tSOURCE\tPATH",
+                machineReadable: true,
+            )
         }
-        try EphemeralWorkspaceManager.validateID(value)
-        let listing = try manager.list().first(where: { $0.id == value })
-        guard let listing else {
-            throw URIError.ephemeralNotFound(value)
-        }
-        if path {
-            terminal.output(listing.path, machineReadable: true)
-        }
-        else {
+        for listing in listings {
             let state = listing.state
-            for line in [
-                "ID: \(listing.id)",
-                "Mode: \(state.mode.rawValue)",
-                "Version: \(state.upstreamVersion)",
-                "Patchset: \(state.patchsetVersion)",
-                "Feature: \(state.feature ?? "-")",
-                "Source: \(state.source.original)",
-                "Path: \(listing.path)",
-            ] {
-                terminal.output(line, machineReadable: true)
-            }
+            terminal.output(
+                [
+                    listing.id,
+                    state.mode.rawValue,
+                    state.upstreamVersion,
+                    state.patchsetVersion,
+                    state.feature ?? "-",
+                    state.source.original,
+                    listing.path,
+                ].joined(separator: "\t"),
+                machineReadable: true,
+            )
         }
     }
 }

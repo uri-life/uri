@@ -162,13 +162,15 @@ Run `uri <command> --help` for every option.
 
 ## Ephemeral workspaces
 
-An ephemeral target is created only when `--ephemeral [ID]` is the final target
-selector. Other options must precede it:
+`--ephemeral [ID]` is an alternative form of the workflow `TARGET` positional
+argument. It can appear before or after recognized command options, but it must
+fill the command's TARGET slot after all required positional arguments:
 
 ```sh
 uri expand ./patches v1.2.3 patch1.0 feature-a --ephemeral peach
 uri apply ./patches v1.2.3 patch1.0 --ephemeral
 uri collapse --discard --ephemeral peach
+uri apply --ephemeral peach --continue
 ```
 
 The optional ID matches `[A-Za-z_][A-Za-z0-9_-]*`. Automatic IDs use a system
@@ -178,11 +180,12 @@ live under `~/.uri/ephemeral/<ID>/repository` and clone exactly VERSION with
 
 ```sh
 uri list --ephemeral
-uri list --ephemeral peach
-uri list --ephemeral peach --path
 uri vanish peach
 uri vanish peach --force
 ```
+
+`list --ephemeral` always prints the complete workspace table. It does not
+accept an ID; use `vanish ID` or a workflow TARGET to select one workspace.
 
 With no ID, `vanish` chooses the only workspace, prompts when several exist on
 a TTY, and errors in non-interactive use. A normal vanish requires a clean
@@ -224,16 +227,30 @@ uri --color never graph 4.5.0 default
 ```
 
 The option can also appear among command arguments. Machine-readable output
-from `list`, graph trees and DOT, `--path`, `--version`, and completion scripts
-always remains plain text.
+from `list`, graph trees and DOT, `--version`, and completion scripts always
+remains plain text.
 
-`uri` generates completion scripts from its built-in command catalog:
+`uri` generates help and completion scripts from the same built-in typed
+command grammar. Load the generated script from the matching shell startup
+configuration (after `bash-completion` or Zsh `compinit` where applicable):
 
 ```sh
-uri --generate-completion-script bash
-uri --generate-completion-script zsh
-uri --generate-completion-script fish
+# Bash
+source <(uri --generate-completion-script bash)
+
+# Zsh
+source <(uri --generate-completion-script zsh)
+
+# Fish
+uri --generate-completion-script fish > ~/.config/fish/completions/uri.fish
 ```
+
+All three shells complete commands, options, local SOURCE and TARGET
+directories, VERSION, PATCHSET, command-specific FEATURE values, inheritance
+and dependency values, and existing ephemeral IDs when a command selects an
+existing workspace. Completion never contacts Git or HTTP sources; an explicit
+remote SOURCE simply has no repository-derived candidates. Free-form new
+identifiers remain accepted even when no candidate is offered.
 
 An exact `v2.0.0` release tag reports `2.0.0`; development builds report
 `dev+<short-commit>`.
@@ -242,9 +259,10 @@ An exact `v2.0.0` release tag reports `2.0.0`; development builds report
 
 - Manifest and patch wire formats remain compatible.
 - Omitted TARGET now means the current Git worktree, not a persistent temporary
-  clone. Use final `--ephemeral [ID]` when a managed clone is desired.
+  clone. Use the alternative TARGET form `--ephemeral [ID]` when a managed
+  clone is desired.
 - `collapse` no longer repeats SOURCE, VERSION, PATCHSET, and FEATURE; it reads
-  the expansion's JSON state and accepts only `[TARGET]` or final
+  the expansion's JSON state and accepts only the optional TARGET forms path or
   `--ephemeral [ID]`.
 - Static HTTPS and explicit Git sources have different syntax: plain HTTP(S) is
   a static tree, while an HTTPS Git repository begins with `git+https://`.
