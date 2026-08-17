@@ -9,49 +9,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Added the complete URI 2.0 command set for patchset authoring, inspection, and
-  Git workflows: `init`, `add`, `remove`, `exclude`, `include`, `list`, `graph`,
-  `expand`, `apply`, `collapse`, and `vanish`.
-- Added local, public static HTTP, and Git patchset sources. Local sources can be
-  discovered from the current directory, while remote sources are fixed to a
-  per-operation snapshot.
+- Commands can now read patchsets from an explicit local directory, a public
+  static HTTP tree, or a Git repository. Remote operations use one consistent
+  snapshot, while authoring commands remain local-only.
 - Added explicit managed workspaces through the final `--ephemeral [ID]` target
-  selector, including workspace listing, path lookup, safe removal, automatic
-  IDs, and optional TTY selection.
-- Added recoverable `expand` and `apply` conflicts through `--continue` and
-  `--abort`, plus state-driven patch reconstruction with `collapse`.
-- Added Bash, Zsh, and Fish completion generation through
-  `--generate-completion-script`.
-- Added `uri --version`, reporting `2.0.0` for an exact `v2.0.0` release tag and
-  `dev+<short-commit>` for development builds.
+  selector, with `list --ephemeral`, path lookup, automatic IDs, safe removal
+  through `vanish`, and `collapse --discard`.
 
 ### Changed
 
+- **Breaking:** URI is now distributed as a native executable instead of a
+  POSIX shell program that requires `yq` and a bundled `uritsort`. Release
+  archives target macOS 13 or later and GNU/Linux with glibc 2.38 or later and
+  `GLIBCXX_3.4.32` or later, on ARM64 and x86-64.
 - **Breaking:** Omitting `TARGET` now selects the current Git worktree and
   errors when no worktree can be found. Managed clones must be requested
   explicitly with final `--ephemeral [ID]`.
 - **Breaking:** `collapse` now reads `SOURCE`, `VERSION`, `PATCHSET`, and
   `FEATURE` from expansion state and accepts only an optional `TARGET` or final
   `--ephemeral [ID]` selector.
-- `expand` requires one `FEATURE` and includes development dependencies by
-  default; `apply` processes the complete regular dependency graph without
-  development-only features.
-- Plain `http://` and `https://` sources now identify static patchset trees;
-  HTTPS Git repositories use the explicit `git+https://` form.
-- Existing targets must have a clean tracked and untracked worktree and an
-  `origin` matching the patchset upstream before URI changes them.
+- **Breaking:** Active 1.x expansion and conflict state is not migrated and
+  must be completed with 1.x. Manifest and patch file formats remain compatible.
+- **Breaking:** Manifest loading now rejects unknown keys and incorrect scalar
+  types before changing Git state or patch files.
+- Plain `http://` and `https://` sources identify static patchset trees; HTTPS
+  Git repositories use the explicit `git+https://` form.
+- Existing targets now reject untracked files as well as tracked changes before
+  URI modifies them.
 - Git authentication now uses existing SSH agents and credential helpers
   without terminal prompts. Static HTTP sources remain unauthenticated, and
-  authoring commands remain local-only.
-- `init` now initializes only an existing directory and does not create a
-  directory or Git repository automatically.
-- Manifest and patch files remain compatible with 1.x, but active 1.x expansion
-  and conflict state is not migrated and must be completed with 1.x.
-
-### Removed
-
-- **Breaking:** Removed the public `URIPatchset` Swift package product. URI 2.0
-  is distributed as an executable only.
+  interactive Git credential prompts are disabled.
+- Bash, Zsh, and Fish completion scripts are now generated on demand with
+  `--generate-completion-script` instead of being distributed as static files.
+- `uri --version` now reports `2.0.0` for an exact `v2.0.0` release build and
+  `dev+<short-commit>` for development builds.
 
 ### Fixed
 
