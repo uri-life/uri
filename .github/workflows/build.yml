@@ -49,6 +49,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Select Xcode 26.3
+        if: runner.os == 'macOS'
+        run: sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+
       - name: Install Swiftly and Swift 6.3.3
         shell: bash
         run: |
