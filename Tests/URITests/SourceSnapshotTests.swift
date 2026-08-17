@@ -1,7 +1,7 @@
+import AsyncHTTPClient
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
+import NIOCore
+import NIOHTTP1
 import Testing
 import URIGit
 import URIModel
@@ -16,14 +16,15 @@ struct SourceSnapshotTests {
     func `HTTP snapshot downloads the complete inheritance chain and tolerates missing optional patches`() async throws {
         let home = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
-        unsafe MockURLProtocol.responses = [
+        let basePatchFilename = try PatchIdentifier.feature("base").filename
+        let client = MockHTTPClient(responses: [
             "/patches/manifest.yaml": .init(
                 status: 200,
-                body: "upstream: https://example.com/upstream.git\n",
+                chunks: ["upstream: https://example.com/", "upstream.git\n"],
             ),
             "/patches/versions/v2/patches/p2/manifest.yaml": .init(
                 status: 200,
-                body:
+                chunks: [
                     """
                     inherits:
                       upstream-version: v1
@@ -32,21 +33,26 @@ struct SourceSnapshotTests {
                       child:
                         dependencies: [base]
 
-                    """,
+                    """
+                ],
             ),
             "/patches/versions/v1/patches/p1/manifest.yaml": .init(
                 status: 200,
-                body:
+                chunks: [
                     """
                     features:
                       base: {}
 
-                    """,
+                    """
+                ],
             ),
-        ]
+            "/patches/versions/v1/patches/p1/\(basePatchFilename)": .init(status: 200),
+        ])
         let resolver = PatchsetSourceResolver(
             paths: .init(homeURL: home),
-            session: mockSession(),
+            requestExecutor: {
+                try await client.execute($0)
+            },
         )
         let reference = try PatchsetReference(upstreamVersion: "v2", patchsetVersion: "p2")
         let resolved = try await resolver.resolve(
@@ -59,55 +65,101 @@ struct SourceSnapshotTests {
         let patchset = try resolved.repository.resolve(reference)
         #expect(patchset.inheritanceChain.map(\.description) == ["v2+p2", "v1+p1"])
         #expect(try patchset.dependencyOrder(for: "child").map(\.id) == ["base", "child"])
-        #expect(try resolved.repository.patch(for: "base", inheritedBy: reference) == nil)
+        let patch = try #require(
+            try resolved.repository.patch(for: "base", inheritedBy: reference),
+        )
+        #expect(try Data(contentsOf: patch.url).isEmpty)
+        let requests = await client.recordedRequests()
+        #expect(requests.allSatisfy({$0.method == .GET}))
+        #expect(requests.allSatisfy({$0.headers.first(name: "User-Agent") == "uri/2"}))
     }
 
     @Test
     func `HTTP snapshot reports required 404 and non-success responses`() async throws {
-        let home = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: home) }
-        unsafe MockURLProtocol.responses = [:]
-        let resolver = PatchsetSourceResolver(
-            paths: .init(homeURL: home),
-            session: mockSession(),
-        )
-
-        await #expect(throws: URIError.self) {
-            _ = try await resolver.resolve(
-                .init(kind: .http, original: "https://example.com/missing"),
+        for status in [404, 500] {
+            let home = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: home) }
+            let client = MockHTTPClient(responses: [
+                "/failure/manifest.yaml": .init(
+                    status: status,
+                    chunks: ["ignored", " response"],
+                ),
+            ])
+            let resolver = PatchsetSourceResolver(
+                paths: .init(homeURL: home),
+                requestExecutor: {
+                    try await client.execute($0)
+                },
             )
+            do {
+                _ = try await resolver.resolve(
+                    .init(kind: .http, original: "https://example.com/failure"),
+                )
+                Issue.record("Expected HTTP \(status).")
+            }
+            catch let error as URIError {
+                #expect(
+                    error == .http(
+                        status: status,
+                        url: "https://example.com/failure/manifest.yaml",
+                    ),
+                )
+            }
+            #expect(try operationSnapshots(in: home).isEmpty)
         }
     }
 
-    // swift-corelibs-foundation traps when URLProtocol reports a redirect.
-    #if canImport(Darwin)
-        @Test
-        func `HTTP snapshot follows a root manifest redirect`() async throws {
-            let home = try temporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: home) }
-            unsafe MockURLProtocol.responses = [
-                "/redirect/manifest.yaml": .init(
-                    status: 302,
-                    body: "",
-                    location: "https://example.com/final/manifest.yaml",
-                ),
-                "/final/manifest.yaml": .init(
-                    status: 200,
-                    body: "upstream: https://example.com/upstream.git\n",
-                ),
-            ]
-            let resolver = PatchsetSourceResolver(
-                paths: .init(homeURL: home),
-                session: mockSession(),
+    @Test
+    func `HTTP snapshot removes staged files after a body failure`() async throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let client = MockHTTPClient(responses: [
+            "/failure/manifest.yaml": .init(
+                status: 200,
+                chunks: ["upstream: https://example.com/"],
+                completion: .failure,
+            ),
+        ])
+        let resolver = PatchsetSourceResolver(
+            paths: .init(homeURL: home),
+            requestExecutor: {
+                try await client.execute($0)
+            },
+        )
+
+        await #expect(throws: MockHTTPError.self) {
+            _ = try await resolver.resolve(
+                .init(kind: .http, original: "https://example.com/failure"),
             )
-            let resolved = try await resolver.resolve(
-                .init(kind: .http, original: "https://example.com/redirect"),
-            )
-            defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
-            #expect(try resolved.repository.rootManifest().upstream
-                == "https://example.com/upstream.git")
         }
-    #endif
+        #expect(try operationSnapshots(in: home).isEmpty)
+    }
+
+    @Test
+    func `HTTP snapshot removes staged files after cancellation`() async throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let client = MockHTTPClient(responses: [
+            "/cancelled/manifest.yaml": .init(
+                status: 200,
+                chunks: ["upstream: https://example.com/"],
+                completion: .cancellation,
+            ),
+        ])
+        let resolver = PatchsetSourceResolver(
+            paths: .init(homeURL: home),
+            requestExecutor: {
+                try await client.execute($0)
+            },
+        )
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await resolver.resolve(
+                .init(kind: .http, original: "https://example.com/cancelled"),
+            )
+        }
+        #expect(try operationSnapshots(in: home).isEmpty)
+    }
 
     @Test
     func `Git source snapshot remains pinned after the remote advances`() async throws {
@@ -145,12 +197,6 @@ struct SourceSnapshotTests {
         #expect(try await snapshotGit.currentCommit() == pinnedCommit)
     }
 
-    private func mockSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        return URLSession(configuration: configuration)
-    }
-
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(
             path: "SourceSnapshotTests-\(UUID().uuidString)",
@@ -158,6 +204,17 @@ struct SourceSnapshotTests {
         )
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
         return url
+    }
+
+    private func operationSnapshots(in home: URL) throws -> [URL] {
+        let cacheURL = RuntimePaths(homeURL: home).operationCacheURL
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else {
+            return []
+        }
+        return try FileManager.default.contentsOfDirectory(
+            at: cacheURL,
+            includingPropertiesForKeys: nil,
+        )
     }
 
     private func git(_ arguments: [String]) throws -> Data {
@@ -180,56 +237,75 @@ struct SourceSnapshotTests {
     }
 }
 
-private final class MockURLProtocol: URLProtocol {
+private enum MockHTTPError: Error {
+
+    case interrupted
+}
+
+private actor MockHTTPClient {
+
+    enum Completion: Sendable {
+
+        case success
+
+        case failure
+
+        case cancellation
+    }
 
     struct Response: Sendable {
+
         let status: Int
-        let body: String
-        let location: String?
 
-        init(status: Int, body: String, location: String? = nil) {
+        let chunks: [Data]
+
+        let completion: Completion
+
+        init(
+            status: Int,
+            chunks: [String] = [],
+            completion: Completion = .success,
+        ) {
             self.status = status
-            self.body = body
-            self.location = location
+            self.chunks = chunks.map({Data($0.utf8)})
+            self.completion = completion
         }
     }
 
-    nonisolated(unsafe) static var responses = [String: Response]()
+    private let responses: [String: Response]
 
-    override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.scheme == "https"
+    private var requests = [HTTPClientRequest]()
+
+    init(responses: [String: Response]) {
+        self.responses = responses
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
+    func execute(_ request: HTTPClientRequest) throws -> HTTPClientResponse {
+        requests.append(request)
+        guard let path = URL(string: request.url)?.path else {
+            throw MockHTTPError.interrupted
+        }
+        let response = responses[path] ?? .init(status: 404)
+        let body = AsyncThrowingStream<ByteBuffer, any Error> { continuation in
+            for chunk in response.chunks {
+                continuation.yield(ByteBuffer(bytes: chunk))
+            }
+            switch response.completion {
+            case .success:
+                continuation.finish()
+            case .failure:
+                continuation.finish(throwing: MockHTTPError.interrupted)
+            case .cancellation:
+                continuation.finish(throwing: CancellationError())
+            }
+        }
+        return .init(
+            status: HTTPResponseStatus(statusCode: response.status),
+            body: .stream(body),
+        )
     }
 
-    override func startLoading() {
-        guard let url = request.url else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-        let value = unsafe Self.responses[url.path] ?? .init(status: 404, body: "")
-        let response = HTTPURLResponse(
-            url: url,
-            statusCode: value.status,
-            httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "text/yaml"],
-        )!
-        if let location = value.location, let redirectURL = URL(string: location) {
-            client?.urlProtocol(
-                self,
-                wasRedirectedTo: URLRequest(url: redirectURL),
-                redirectResponse: response,
-            )
-            return
-        }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        if !value.body.isEmpty {
-            client?.urlProtocol(self, didLoad: Data(value.body.utf8))
-        }
-        client?.urlProtocolDidFinishLoading(self)
+    func recordedRequests() -> [HTTPClientRequest] {
+        requests
     }
-
-    override func stopLoading() {}
 }

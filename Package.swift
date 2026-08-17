@@ -55,6 +55,14 @@ let package: Package = .init(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/swift-server/async-http-client",
+            .upToNextMajor(from: "1.36.0"),
+        ),
+        .package(
+            url: "https://github.com/apple/swift-nio",
+            .upToNextMajor(from: "2.100.0"),
+        ),
+        .package(
             url: "https://github.com/apple/swift-argument-parser",
             .upToNextMajor(from: "1.8.2"),
         ),
@@ -103,6 +111,18 @@ let package: Package = .init(
                 "URIModel",
                 "URIPatchset",
                 .product(
+                    name: "AsyncHTTPClient",
+                    package: "async-http-client",
+                ),
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio",
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio",
+                ),
+                .product(
                     name: "Yams",
                     package: "Yams",
                 ),
@@ -115,6 +135,18 @@ let package: Package = .init(
                 "URI",
                 "URIModel",
                 "URIPatchset",
+                .product(
+                    name: "AsyncHTTPClient",
+                    package: "async-http-client",
+                ),
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio",
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio",
+                ),
             ],
             swiftSettings: swiftSettings(defaultIsolation: nil),
         ),

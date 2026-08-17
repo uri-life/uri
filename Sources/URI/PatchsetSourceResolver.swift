@@ -1,27 +1,42 @@
+import AsyncHTTPClient
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
+import NIOCore
+import NIOHTTP1
 public import URIGit
 import URIModel
 public import URIPatchset
 
 public struct PatchsetSourceResolver: Sendable {
 
+    typealias RequestExecutor = @Sendable (HTTPClientRequest) async throws -> HTTPClientResponse
+
     private let git: Git
 
     private let paths: RuntimePaths
 
-    private let session: URLSession
+    private let requestExecutor: RequestExecutor
 
     public init(
         git: Git = .init(),
         paths: RuntimePaths = .init(),
-        session: URLSession = .shared,
+    ) {
+        self.init(
+            git: git,
+            paths: paths,
+            requestExecutor: {
+                try await HTTPClient.shared.execute($0, timeout: .seconds(60))
+            },
+        )
+    }
+
+    init(
+        git: Git = .init(),
+        paths: RuntimePaths = .init(),
+        requestExecutor: @escaping RequestExecutor,
     ) {
         self.git = git
         self.paths = paths
-        self.session = session
+        self.requestExecutor = requestExecutor
     }
 
     public func resolve(
@@ -222,26 +237,72 @@ public struct PatchsetSourceResolver: Sendable {
 
     @discardableResult
     private func downloadOptional(_ remoteURL: URL, to localURL: URL) async throws -> Bool {
-        var request = URLRequest(url: remoteURL)
-        request.httpMethod = "GET"
-        request.setValue("uri/2", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else {
-            throw URIError.unsupportedSource("Non-HTTP response from \(remoteURL.absoluteString)")
-        }
-        if response.statusCode == 404 {
+        var request = HTTPClientRequest(url: remoteURL.absoluteString)
+        request.method = .GET
+        request.headers.add(name: "User-Agent", value: "uri/2")
+        let response = try await requestExecutor(request)
+        let statusCode = Int(response.status.code)
+        if statusCode == 404 {
+            try await discard(response.body)
             return false
         }
-        guard (200...299).contains(response.statusCode) else {
-            throw URIError.http(status: response.statusCode, url: remoteURL.absoluteString)
+        guard (200...299).contains(statusCode) else {
+            try await discard(response.body)
+            throw URIError.http(status: statusCode, url: remoteURL.absoluteString)
         }
+        try await write(response.body, to: localURL)
+        return true
+    }
+
+    private func discard(_ body: HTTPClientResponse.Body) async throws {
+        for try await _ in body {}
+    }
+
+    private func write(_ body: HTTPClientResponse.Body, to localURL: URL) async throws {
+        let directoryURL = localURL.deletingLastPathComponent()
+        let temporaryURL = directoryURL.appending(
+            path: ".\(localURL.lastPathComponent).uri-\(UUID().uuidString).tmp",
+        )
         do {
             try FileManager.default.createDirectory(
-                at: localURL.deletingLastPathComponent(),
+                at: directoryURL,
                 withIntermediateDirectories: true,
             )
-            try data.write(to: localURL, options: .atomic)
-            return true
+        }
+        catch {
+            throw URIError.fileSystem("Could not save \(localURL.path): \(error)")
+        }
+        guard FileManager.default.createFile(atPath: temporaryURL.path, contents: nil) else {
+            throw URIError.fileSystem("Could not create temporary file for \(localURL.path).")
+        }
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forWritingTo: temporaryURL)
+        }
+        catch {
+            throw URIError.fileSystem("Could not save \(localURL.path): \(error)")
+        }
+        var shouldCloseFile = true
+        defer {
+            if shouldCloseFile {
+                try? fileHandle.close()
+            }
+            try? FileManager.default.removeItem(at: temporaryURL)
+        }
+        var iterator = body.makeAsyncIterator()
+        while let buffer = try await iterator.next() {
+            do {
+                try fileHandle.write(contentsOf: Data(buffer.readableBytesView))
+            }
+            catch {
+                throw URIError.fileSystem("Could not save \(localURL.path): \(error)")
+            }
+        }
+        try Task.checkCancellation()
+        do {
+            try fileHandle.close()
+            shouldCloseFile = false
+            try FileManager.default.moveItem(at: temporaryURL, to: localURL)
         }
         catch {
             throw URIError.fileSystem("Could not save \(localURL.path): \(error)")
