@@ -12,8 +12,20 @@ database or second manifest format.
 
 ## Requirements and installation
 
-The executable supports macOS and Linux on `x86_64` and `arm64`. It invokes the
-system `git` executable and uses existing SSH agents and Git credential helpers.
+Choose the release archive that matches the operating system and architecture:
+
+| Archive | Minimum runtime |
+| --- | --- |
+| `uri-macos-arm64` | macOS 13 or later on Apple silicon |
+| `uri-macos-x86_64` | macOS 13 or later on an Intel Mac |
+| `uri-linux-arm64` | ARM64 GNU/Linux with glibc 2.38 or later and `GLIBCXX_3.4.32` or later |
+| `uri-linux-x86_64` | x86-64 GNU/Linux with glibc 2.38 or later and `GLIBCXX_3.4.32` or later |
+
+All platforms require a `git` executable on `PATH`. SSH Git remotes also require
+an OpenSSH client. HTTPS sources and remotes require a system CA certificate
+store; minimal Debian and Ubuntu installations may need the `ca-certificates`
+package.
+
 Terminal credential prompts are disabled. Windows, static HTTP authentication,
 and interactive Git credential prompts are not supported.
 
