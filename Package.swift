@@ -63,10 +63,6 @@ let package: Package = .init(
             .upToNextMajor(from: "2.100.0"),
         ),
         .package(
-            url: "https://github.com/apple/swift-argument-parser",
-            .upToNextMajor(from: "1.8.2"),
-        ),
-        .package(
             url: "https://github.com/uri-life/uritsort",
             from: "0.1.0",
         ),
@@ -83,10 +79,6 @@ let package: Package = .init(
                 "URI",
                 "URIModel",
                 "URIPatchset",
-                .product(
-                    name: "ArgumentParser",
-                    package: "swift-argument-parser",
-                ),
             ],
             swiftSettings: swiftSettings(defaultIsolation: nil),
             plugins: ["URIVersionsGeneratorPlugin"],
@@ -96,10 +88,6 @@ let package: Package = .init(
             dependencies: [
                 "URICommand",
                 "URI",
-                .product(
-                    name: "ArgumentParser",
-                    package: "swift-argument-parser",
-                ),
             ],
             swiftSettings: swiftSettings(defaultIsolation: nil),
         ),

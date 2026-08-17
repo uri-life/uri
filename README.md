@@ -211,10 +211,23 @@ HTTP and Git sources get one fixed snapshot per operation under
 reported, and missing optional patch files are allowed. A shared URL cache and
 Git ref selection are intentionally not implemented.
 
-## Shell completion and versioning
+## Terminal output, shell completion, and versioning
 
-Swift Argument Parser generates completion scripts through its official entry
-point:
+Human-facing help, status, prompts, warnings, and diagnostics use color when
+their output stream is a TTY. Automatic color is disabled when `NO_COLOR` is
+set or `TERM=dumb`; an explicit `always` or `never` overrides the environment:
+
+```sh
+uri --color auto list
+uri --color always apply 4.5.0 default
+uri --color never graph 4.5.0 default
+```
+
+The option can also appear among command arguments. Machine-readable output
+from `list`, graph trees and DOT, `--path`, `--version`, and completion scripts
+always remains plain text.
+
+`uri` generates completion scripts from its built-in command catalog:
 
 ```sh
 uri --generate-completion-script bash

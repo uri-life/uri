@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added explicit managed workspaces through the final `--ephemeral [ID]` target
   selector, with `list --ephemeral`, path lookup, automatic IDs, safe removal
   through `vanish`, and `collapse --discard`.
+- Added TTY-aware colored help, status, prompts, warnings, and diagnostics with
+  global `--color auto|always|never`; machine-readable output remains plain.
 
 ### Changed
 

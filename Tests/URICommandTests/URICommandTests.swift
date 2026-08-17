@@ -1,72 +1,96 @@
-import ArgumentParser
 import Testing
-import URI
 
-@testable import URICommand
+@testable
+import URICommand
 
 @Suite("URI Command")
 struct URICommandTests {
 
     @Test
-    func `root command exposes the complete 2_0 command surface`() {
-        let names = URICommand.configuration.subcommands.map({ type in type._commandName })
-        #expect(
-            names == [
-                "init", "add", "remove", "exclude", "include", "list", "graph",
-                "expand", "apply", "collapse", "vanish",
+    func `help version and completion succeed without coloring machine output`() async {
+        let help = CommandOutputCapture()
+        let helpCode = await URICommand.run(
+            arguments: ["--help"],
+            terminalFactory: { help.terminal(colorMode: $0) },
+        )
+        let version = CommandOutputCapture()
+        let versionCode = await URICommand.run(
+            arguments: ["--color", "always", "--version"],
+            terminalFactory: { version.terminal(colorMode: $0) },
+        )
+        let completion = CommandOutputCapture()
+        let completionCode = await URICommand.run(
+            arguments: [
+                "--color", "always", "--generate-completion-script", "bash",
             ],
+            terminalFactory: { completion.terminal(colorMode: $0) },
         )
+
+        #expect(helpCode == 0)
+        #expect(help.standardOutput.contains("COMMANDS"))
+        #expect(versionCode == 0)
+        #expect(!version.standardOutput.contains("\u{001B}["))
+        #expect(completionCode == 0)
+        #expect(completion.standardOutput.contains("complete -F _uri uri"))
+        #expect(!completion.standardOutput.contains("\u{001B}["))
     }
 
     @Test
-    func `ephemeral target selector must be the final command element`() {
-        #expect(throws: Never.self) {
-            try CLI.preflightEphemeralPosition(arguments: ["apply", "v1", "p1", "--ephemeral"])
-        }
-        #expect(throws: Never.self) {
-            try CLI.preflightEphemeralPosition(
-                arguments: ["collapse", "--discard", "--ephemeral", "peach"],
-            )
-        }
-        #expect(throws: URIError.self) {
-            try CLI.preflightEphemeralPosition(
-                arguments: ["apply", "--ephemeral", "peach", "v1", "p1"],
-            )
-        }
+    func `help command prints command usage to standard output`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: ["help", "apply"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
+        )
+
+        #expect(code == 0)
+        #expect(capture.standardOutput.contains("uri apply [SOURCE] VERSION PATCHSET"))
+        #expect(capture.standardOutput.contains("--continue"))
+        #expect(capture.standardError.isEmpty)
     }
 
     @Test
-    func `source overloading consumes only a recognized leading source`() {
-        #expect(CLI.splitSource(["v1", "p1"]).source == nil)
-        #expect(CLI.splitSource(["./patches", "v1", "p1"]).source == "./patches")
-        #expect(
-            CLI.splitSource(["git+https://example.com/p.git", "v1", "p1"]).rest
-                == ["v1", "p1"],
+    func `usage errors exit 64 with command usage on standard error`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: ["apply", "v1", "p1", "--ephemeral", "peach", "trailing"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
         )
+
+        #expect(code == 64)
+        #expect(capture.standardOutput.isEmpty)
+        #expect(capture.standardError.contains("error:"))
+        #expect(capture.standardError.contains("usage: uri apply"))
     }
 
     @Test
-    func `ephemeral option accepts either an automatic or explicit final ID`() async throws {
-        let automatic = try #require(
-            try await URICommand.asyncParseAsRoot([
-                "apply", "v1", "p1", "--ephemeral",
-            ]) as? Apply,
+    func `operational errors exit 1 without usage text`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: [
+                "init",
+                "/__uri_command_tests_missing__/patches",
+                "--upstream",
+                "https://example.com/project.git",
+            ],
+            terminalFactory: { capture.terminal(colorMode: $0) },
         )
-        let explicit = try #require(
-            try await URICommand.asyncParseAsRoot([
-                "expand", "v1", "p1", "feature", "--ephemeral", "peach",
-            ]) as? Expand,
-        )
-        #expect(automatic.ephemeralTarget.ephemeral == CLI.automaticEphemeralID)
-        #expect(explicit.ephemeralTarget.ephemeral == "peach")
+
+        #expect(code == 1)
+        #expect(capture.standardOutput.isEmpty)
+        #expect(capture.standardError.contains("error:"))
+        #expect(!capture.standardError.contains("usage:"))
     }
 
     @Test
-    func `ArgumentParser supplies all three official completion generators`() {
-        for shell in [CompletionShell.bash, .zsh, .fish] {
-            let script = URICommand.completionScript(for: shell)
-            #expect(!script.isEmpty)
-            #expect(script.contains("uri"))
-        }
+    func `always colors diagnostics emitted for invalid commands`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: ["--color", "always", "unknown"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
+        )
+
+        #expect(code == 64)
+        #expect(capture.standardError.contains("\u{001B}[31merror:\u{001B}[0m"))
     }
 }

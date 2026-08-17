@@ -1,81 +1,70 @@
-import ArgumentParser
 import Foundation
 import URI
 import URIModel
 import URIPatchset
 
-struct List: AsyncParsableCommand {
+struct List {
 
-    static let configuration = CommandConfiguration(
-        abstract: "List patchset versions, patchsets, features, or ephemeral workspaces.",
-    )
+    let values: [String]
 
-    @Argument(help: "[SOURCE] [VERSION] [PATCHSET]")
-    var values: [String] = []
+    let ephemeral: String?
 
-    @Option(
-        name: .long,
-        defaultAsFlag: CLI.automaticEphemeralID,
-        help: "List ephemeral workspaces, or inspect one ID.",
-    )
-    var ephemeral: String?
+    let path: Bool
 
-    @Flag(help: "With --ephemeral ID, print only its repository path.")
-    var path = false
-
-    mutating func run() async throws {
-        try await CLI.userFacing {
-            if let ephemeral {
-                guard values.isEmpty else {
-                    throw URIError.invalidArguments(
-                        "Patchset SOURCE arguments cannot be combined with --ephemeral.",
-                    )
-                }
-                try listEphemeral(ephemeral)
-                return
-            }
-            guard !path else {
-                throw URIError.invalidArguments("--path requires --ephemeral ID.")
-            }
-            let (source, arguments) = try CLI.sourceAndArguments(values)
-            guard arguments.count <= 2 else {
-                throw URIError.invalidArguments("list accepts [VERSION] [PATCHSET].")
-            }
-            if source.kind == .http, arguments.count < 2 {
-                throw URIError.unsupportedSource(
-                    "Static HTTP sources cannot enumerate versions or patchsets without an index. Specify VERSION and PATCHSET.",
+    func run(terminal: Terminal) async throws {
+        if let ephemeral {
+            guard values.isEmpty else {
+                throw URIError.invalidArguments(
+                    "Patchset SOURCE arguments cannot be combined with --ephemeral.",
                 )
             }
-            let reference = arguments.count == 2
-                ? try PatchsetReference(
-                    upstreamVersion: arguments[0],
-                    patchsetVersion: arguments[1],
-                )
-                : nil
-            let resolver = PatchsetSourceResolver()
-            let resolved = try await resolver.resolve(source, reference: reference)
-            defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
-            if arguments.isEmpty {
-                for version in try resolved.repository.upstreamVersions() {
-                    print(version)
-                }
+            try listEphemeral(ephemeral, terminal: terminal)
+            return
+        }
+        guard !path else {
+            throw URIError.invalidArguments("--path requires --ephemeral ID.")
+        }
+        let (source, arguments) = try CLI.sourceAndArguments(values)
+        guard arguments.count <= 2 else {
+            throw URIError.invalidArguments("list accepts [VERSION] [PATCHSET].")
+        }
+        if source.kind == .http, arguments.count < 2 {
+            throw URIError.unsupportedSource(
+                "Static HTTP sources cannot enumerate versions or patchsets without an index. Specify VERSION and PATCHSET.",
+            )
+        }
+        let reference = arguments.count == 2
+            ? try PatchsetReference(
+                upstreamVersion: arguments[0],
+                patchsetVersion: arguments[1],
+            )
+            : nil
+        let resolver = PatchsetSourceResolver()
+        let resolved = try await resolver.resolve(source, reference: reference)
+        defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
+        if arguments.isEmpty {
+            for version in try resolved.repository.upstreamVersions() {
+                terminal.output(version, machineReadable: true)
             }
-            else if arguments.count == 1 {
-                for reference in try resolved.repository.patchsets(in: arguments[0]) {
-                    print(reference.patchsetVersion)
-                }
+        }
+        else if arguments.count == 1 {
+            for reference in try resolved.repository.patchsets(in: arguments[0]) {
+                terminal.output(reference.patchsetVersion, machineReadable: true)
             }
-            else if let reference {
-                for feature in try resolved.repository.resolve(reference).orderedFeatures(
-                    in: .includingDevelopment,
-                ) {
-                    print(feature.id)
-                }
+        }
+        else if let reference {
+            for feature in try resolved.repository.resolve(reference).orderedFeatures(
+                in: .includingDevelopment,
+            ) {
+                terminal.output(feature.id, machineReadable: true)
             }
         }
     }
 
-    private func listEphemeral(_ value: String) throws {
+    private func listEphemeral(
+        _ value: String,
+        terminal: Terminal,
+    ) throws {
         let manager = EphemeralWorkspaceManager()
         if value == CLI.automaticEphemeralID {
             guard !path else {
@@ -83,11 +72,14 @@ struct List: AsyncParsableCommand {
             }
             let listings = try manager.list()
             if !listings.isEmpty {
-                print("ID\tMODE\tVERSION\tPATCHSET\tFEATURE\tSOURCE\tPATH")
+                terminal.output(
+                    "ID\tMODE\tVERSION\tPATCHSET\tFEATURE\tSOURCE\tPATH",
+                    machineReadable: true,
+                )
             }
             for listing in listings {
                 let state = listing.state
-                print(
+                terminal.output(
                     [
                         listing.id,
                         state.mode.rawValue,
@@ -97,6 +89,7 @@ struct List: AsyncParsableCommand {
                         state.source.original,
                         listing.path,
                     ].joined(separator: "\t"),
+                    machineReadable: true,
                 )
             }
             return
@@ -107,59 +100,66 @@ struct List: AsyncParsableCommand {
             throw URIError.ephemeralNotFound(value)
         }
         if path {
-            print(listing.path)
+            terminal.output(listing.path, machineReadable: true)
         }
         else {
             let state = listing.state
-            print("ID: \(listing.id)")
-            print("Mode: \(state.mode.rawValue)")
-            print("Version: \(state.upstreamVersion)")
-            print("Patchset: \(state.patchsetVersion)")
-            print("Feature: \(state.feature ?? "-")")
-            print("Source: \(state.source.original)")
-            print("Path: \(listing.path)")
+            for line in [
+                "ID: \(listing.id)",
+                "Mode: \(state.mode.rawValue)",
+                "Version: \(state.upstreamVersion)",
+                "Patchset: \(state.patchsetVersion)",
+                "Feature: \(state.feature ?? "-")",
+                "Source: \(state.source.original)",
+                "Path: \(listing.path)",
+            ] {
+                terminal.output(line, machineReadable: true)
+            }
         }
     }
 }
 
-struct Graph: AsyncParsableCommand {
+struct Graph {
 
-    enum Format: String, ExpressibleByArgument {
+    enum Format: String {
+
         case tree
+
         case dot
     }
 
-    static let configuration = CommandConfiguration(abstract: "Print a feature dependency graph.")
+    let values: [String]
 
-    @Argument(help: "[SOURCE] VERSION PATCHSET")
-    var values: [String] = []
+    let includeDevelopment: Bool
 
-    @Flag(name: .customLong("include-dev"))
-    var includeDevelopment = false
+    let format: Format
 
-    @Option
-    var format: Format = .tree
-
-    mutating func run() async throws {
-        try await CLI.userFacing {
-            let (source, arguments) = try CLI.sourceAndArguments(values)
-            guard arguments.count == 2 else {
-                throw URIError.invalidArguments("graph requires VERSION PATCHSET.")
-            }
-            let reference = try CLI.reference(arguments[...])
-            let resolver = PatchsetSourceResolver()
-            let sourceRepository = try await resolver.resolve(source, reference: reference)
-            defer { try? resolver.removeSnapshot(at: sourceRepository.snapshotURL) }
-            let resolved = try sourceRepository.repository.resolve(reference)
-            let orderedFeatureIDs = try resolved.orderedFeatures(
-                in: includeDevelopment ? .includingDevelopment : .regular,
-            ).map(\.id)
-            switch format {
-            case .tree:
-                renderTree(resolved, orderedFeatureIDs: orderedFeatureIDs)
-            case .dot:
-                renderDOT(resolved, orderedFeatureIDs: orderedFeatureIDs)
-            }
+    func run(terminal: Terminal) async throws {
+        let (source, arguments) = try CLI.sourceAndArguments(values)
+        guard arguments.count == 2 else {
+            throw URIError.invalidArguments("graph requires VERSION PATCHSET.")
+        }
+        let reference = try CLI.reference(arguments[...])
+        let resolver = PatchsetSourceResolver()
+        let sourceRepository = try await resolver.resolve(source, reference: reference)
+        defer { try? resolver.removeSnapshot(at: sourceRepository.snapshotURL) }
+        let resolved = try sourceRepository.repository.resolve(reference)
+        let orderedFeatureIDs = try resolved.orderedFeatures(
+            in: includeDevelopment ? .includingDevelopment : .regular,
+        ).map(\.id)
+        switch format {
+        case .tree:
+            renderTree(
+                resolved,
+                orderedFeatureIDs: orderedFeatureIDs,
+                terminal: terminal,
+            )
+        case .dot:
+            renderDOT(
+                resolved,
+                orderedFeatureIDs: orderedFeatureIDs,
+                terminal: terminal,
+            )
         }
     }
 
@@ -171,6 +171,7 @@ struct Graph: AsyncParsableCommand {
     private func renderTree(
         _ patchset: ResolvedPatchset,
         orderedFeatureIDs: [String],
+        terminal: Terminal,
     ) {
         var children = [String: [String]]()
         var hasParent = Set<String>()
@@ -189,8 +190,13 @@ struct Graph: AsyncParsableCommand {
             roots = orderedFeatureIDs
         }
         for root in roots {
-            print(root)
-            renderTreeChildren(root, prefix: "", children: children)
+            terminal.output(root, machineReadable: true)
+            renderTreeChildren(
+                root,
+                prefix: "",
+                children: children,
+                terminal: terminal,
+            )
         }
     }
 
@@ -198,15 +204,20 @@ struct Graph: AsyncParsableCommand {
         _ featureID: String,
         prefix: String,
         children: [String: [String]],
+        terminal: Terminal,
     ) {
         let values = children[featureID] ?? []
         for (index, child) in values.enumerated() {
             let isLast = index == values.count - 1
-            print("\(prefix)\(isLast ? "└─ " : "├─ ")\(child)")
+            terminal.output(
+                "\(prefix)\(isLast ? "└─ " : "├─ ")\(child)",
+                machineReadable: true,
+            )
             renderTreeChildren(
                 child,
                 prefix: prefix + (isLast ? "   " : "│  "),
                 children: children,
+                terminal: terminal,
             )
         }
     }
@@ -214,10 +225,11 @@ struct Graph: AsyncParsableCommand {
     private func renderDOT(
         _ patchset: ResolvedPatchset,
         orderedFeatureIDs: [String],
+        terminal: Terminal,
     ) {
-        print("digraph dependencies {")
+        terminal.output("digraph dependencies {", machineReadable: true)
         for featureID in orderedFeatureIDs {
-            print("  \(quoted(featureID));")
+            terminal.output("  \(quoted(featureID));", machineReadable: true)
         }
         for featureID in orderedFeatureIDs {
             guard let feature = patchset.features[featureID] else {
@@ -225,10 +237,13 @@ struct Graph: AsyncParsableCommand {
             }
             for dependency in Set(dependencies(of: feature)).sorted()
             where dependency != featureID {
-                print("  \(quoted(dependency)) -> \(quoted(feature.id));")
+                terminal.output(
+                    "  \(quoted(dependency)) -> \(quoted(feature.id));",
+                    machineReadable: true,
+                )
             }
         }
-        print("}")
+        terminal.output("}", machineReadable: true)
     }
 
     private func quoted(_ value: String) -> String {
