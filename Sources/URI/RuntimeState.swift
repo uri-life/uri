@@ -27,8 +27,8 @@ public struct RuntimePaths: Sendable {
         ephemeralRootURL.appending(path: id, directoryHint: .isDirectory)
     }
 
-    public func repositoryURL(id: String) -> URL {
-        ephemeralURL(id: id).appending(path: "repository", directoryHint: .isDirectory)
+    public func repositoryURL(id: String, repositoryName: String = "repository") -> URL {
+        ephemeralURL(id: id).appending(path: repositoryName, directoryHint: .isDirectory)
     }
 
     public func ephemeralStateURL(id: String) -> URL {

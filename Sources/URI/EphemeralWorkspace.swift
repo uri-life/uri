@@ -39,7 +39,11 @@ public struct EphemeralWorkspaceManager: Sendable {
         self.stateStore = stateStore
     }
 
-    public func create(requestedID: String?) throws -> EphemeralWorkspace {
+    public func create(
+        requestedID: String?,
+        repositoryName: String = "repository",
+    ) throws -> EphemeralWorkspace {
+        try Self.validateRepositoryName(repositoryName)
         do {
             try FileManager.default.createDirectory(
                 at: paths.ephemeralRootURL,
@@ -52,7 +56,11 @@ public struct EphemeralWorkspaceManager: Sendable {
 
         if let requestedID {
             try Self.validateID(requestedID)
-            return try createDirectory(id: requestedID, collisionIsError: true)
+            return try createDirectory(
+                id: requestedID,
+                repositoryName: repositoryName,
+                collisionIsError: true,
+            )
         }
 
         let words = candidateWords()
@@ -60,13 +68,21 @@ public struct EphemeralWorkspaceManager: Sendable {
             let first = words.randomElement() ?? "uri"
             let second = words.randomElement() ?? "workspace"
             let id = "\(first)-\(second)"
-            if let workspace = try? createDirectory(id: id, collisionIsError: false) {
+            if let workspace = try? createDirectory(
+                id: id,
+                repositoryName: repositoryName,
+                collisionIsError: false,
+            ) {
                 return workspace
             }
         }
         for _ in 0..<256 {
             let id = "uri-\(UUID().uuidString.prefix(8).lowercased())"
-            if let workspace = try? createDirectory(id: id, collisionIsError: false) {
+            if let workspace = try? createDirectory(
+                id: id,
+                repositoryName: repositoryName,
+                collisionIsError: false,
+            ) {
                 return workspace
             }
         }
@@ -80,7 +96,17 @@ public struct EphemeralWorkspaceManager: Sendable {
             throw URIError.ephemeralNotFound(id)
         }
         try validateManagedPath(workspace)
-        return workspace
+        guard FileManager.default.fileExists(atPath: workspace.stateURL.path) else {
+            return workspace
+        }
+        let state = try stateStore.load(from: workspace.stateURL)
+        let persistedWorkspace = makeWorkspace(
+            id: id,
+            repositoryURL: URL(filePath: state.targetPath, directoryHint: .isDirectory),
+        )
+        try validateManagedPath(persistedWorkspace)
+        try validateMetadata(state, workspace: persistedWorkspace)
+        return persistedWorkspace
     }
 
     public func removeUninitialized(_ workspace: EphemeralWorkspace) throws {
@@ -172,8 +198,12 @@ public struct EphemeralWorkspaceManager: Sendable {
         }
     }
 
-    private func createDirectory(id: String, collisionIsError: Bool) throws -> EphemeralWorkspace {
-        let workspace = makeWorkspace(id: id)
+    private func createDirectory(
+        id: String,
+        repositoryName: String,
+        collisionIsError: Bool,
+    ) throws -> EphemeralWorkspace {
+        let workspace = makeWorkspace(id: id, repositoryName: repositoryName)
         do {
             try FileManager.default.createDirectory(
                 at: workspace.rootURL,
@@ -198,11 +228,21 @@ public struct EphemeralWorkspaceManager: Sendable {
         }
     }
 
-    private func makeWorkspace(id: String) -> EphemeralWorkspace {
+    private func makeWorkspace(
+        id: String,
+        repositoryName: String = "repository",
+    ) -> EphemeralWorkspace {
+        makeWorkspace(
+            id: id,
+            repositoryURL: paths.repositoryURL(id: id, repositoryName: repositoryName),
+        )
+    }
+
+    private func makeWorkspace(id: String, repositoryURL: URL) -> EphemeralWorkspace {
         .init(
             id: id,
             rootURL: paths.ephemeralURL(id: id),
-            repositoryURL: paths.repositoryURL(id: id),
+            repositoryURL: repositoryURL,
             stateURL: paths.ephemeralStateURL(id: id),
         )
     }
@@ -230,6 +270,10 @@ public struct EphemeralWorkspaceManager: Sendable {
             canonical.lastPathComponent == workspace.id
         else {
             throw URIError.unsafeEphemeral("Ephemeral workspace escapes the managed root: \(workspace.id)")
+        }
+        let repository = workspace.repositoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        guard repository.deletingLastPathComponent().path == canonical.path else {
+            throw URIError.unsafeEphemeral("Ephemeral repository escapes the managed workspace: \(workspace.id)")
         }
     }
 
@@ -280,5 +324,19 @@ public struct EphemeralWorkspaceManager: Sendable {
 
     private static func isASCIIAlpha(_ byte: UInt8) -> Bool {
         (65...90).contains(byte) || (97...122).contains(byte)
+    }
+
+    private static func validateRepositoryName(_ name: String) throws {
+        guard !name.isEmpty,
+            name != ".",
+            name != "..",
+            !name.contains("/"),
+            !name.contains(where: { $0.isNewline || $0 == "\0" }),
+            name.caseInsensitiveCompare("state.json") != .orderedSame
+        else {
+            throw URIError.invalidArguments(
+                "Upstream repository name cannot be used as an ephemeral directory: \(name)",
+            )
+        }
     }
 }

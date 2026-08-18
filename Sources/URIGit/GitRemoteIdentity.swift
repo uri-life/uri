@@ -6,6 +6,20 @@ public enum GitRemoteIdentity: Equatable, Hashable, Sendable {
 
     case local(URL)
 
+    /// Returns the final normalized path component used as the local clone directory.
+    public var repositoryName: String? {
+        let name: String
+        switch self {
+        case .network(_, let path):
+            name = path
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .last.map(String.init) ?? ""
+        case .local(let url):
+            name = url.lastPathComponent
+        }
+        return name.isEmpty ? nil : name
+    }
+
     public init(
         _ value: String,
         relativeTo baseURL: URL,

@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Ephemeral clones now use the upstream repository name for their directory
+  instead of the generic `repository` name.
+
 ## [2.0.0-rc.1] - 2026-08-18
 
 ### Added

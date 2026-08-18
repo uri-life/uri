@@ -9,7 +9,7 @@ import URIPatchset
 struct EphemeralWorkspaceTests {
 
     @Test
-    func `apply workspace lists rejects collapse and vanishes safely`() async throws {
+    func `apply workspace uses the upstream repository name, lists, rejects collapse, and vanishes when clean`() async throws {
         let fixture = try EphemeralFixture()
         defer { fixture.remove() }
         try fixture.prepare()
@@ -33,7 +33,11 @@ struct EphemeralWorkspaceTests {
         let listings = try manager.list()
         #expect(listings.map(\.id) == ["peach"])
         #expect(listings[0].state.mode == .apply)
-        #expect(listings[0].path == paths.repositoryURL(id: "peach").path)
+        #expect(
+            listings[0].path
+                == paths.repositoryURL(id: "peach", repositoryName: "upstream").path,
+        )
+        #expect(result.targetURL.lastPathComponent == "upstream")
 
         await #expect(throws: URIError.self) {
             _ = try await workflow.collapse(
@@ -99,7 +103,8 @@ struct EphemeralWorkspaceTests {
             currentDirectoryURL: fixture.root,
             ephemeral: .named("grape"),
         )
-        let repositoryURL = paths.repositoryURL(id: "grape")
+        let repositoryURL = try EphemeralWorkspaceManager(paths: paths)
+            .workspace(id: "grape").repositoryURL
         try Data("dirty\n".utf8).write(to: repositoryURL.appending(path: "untracked.txt"))
         let manager = EphemeralWorkspaceManager(paths: paths)
 
@@ -148,7 +153,8 @@ struct EphemeralWorkspaceTests {
             currentDirectoryURL: fixture.root,
             ephemeral: .named("cedar"),
         )
-        let repositoryURL = paths.repositoryURL(id: "cedar")
+        let repositoryURL = try EphemeralWorkspaceManager(paths: paths)
+            .workspace(id: "cedar").repositoryURL
         try Data("moved\n".utf8).write(to: repositoryURL.appending(path: "moved.txt"))
         _ = try fixture.git(["-C", repositoryURL.path, "add", "moved.txt"])
         _ = try fixture.git([

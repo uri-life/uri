@@ -174,7 +174,8 @@ uri apply --ephemeral peach --continue
 
 The optional ID matches `[A-Za-z_][A-Za-z0-9_-]*`. Automatic IDs use a system
 word list when one is available and a bundled fallback otherwise. Workspaces
-live under `~/.uri/ephemeral/<ID>/repository` and clone exactly VERSION with
+live under `~/.uri/ephemeral/<ID>/<REPOSITORY>` and use the upstream repository
+name for `<REPOSITORY>`. They clone exactly VERSION with
 `--depth 1 --single-branch --branch VERSION`.
 
 ```sh

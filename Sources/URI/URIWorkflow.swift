@@ -641,7 +641,14 @@ public struct URIWorkflow {
             case .none:
                 fatalError("Handled above")
             }
-            let workspace = try ephemeralManager.create(requestedID: requestedID)
+            let remoteIdentity = try GitRemoteIdentity(upstream, relativeTo: sourceBaseURL)
+            guard let repositoryName = remoteIdentity.repositoryName else {
+                throw GitError.invalidReference(upstream)
+            }
+            let workspace = try ephemeralManager.create(
+                requestedID: requestedID,
+                repositoryName: repositoryName,
+            )
             do {
                 let repository = try await git.cloneRepository(
                     from: upstream,

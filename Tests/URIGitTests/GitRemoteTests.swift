@@ -6,7 +6,7 @@ import URIGit
 struct GitRemoteTests {
 
     @Test
-    func `HTTPS and SCP remotes normalize credentials host and default port`() throws {
+    func `HTTPS and SCP remotes normalize credentials, host, default port, and repository name`() throws {
         let baseURL = FileManager.default.temporaryDirectory
         let https = try GitRemoteIdentity(
             "https://user:secret@GitHub.COM:443/org/Repo.git/",
@@ -19,6 +19,8 @@ struct GitRemoteTests {
 
         #expect(https == scp)
         #expect(https.description == "remote:github.com/org/Repo")
+        #expect(https.repositoryName == "Repo")
+        #expect(scp.repositoryName == "Repo")
     }
 
     @Test
@@ -38,7 +40,7 @@ struct GitRemoteTests {
     }
 
     @Test
-    func `relative local path and file URL resolve to one canonical identity`() throws {
+    func `relative local path and file URL resolve to one canonical identity and repository name`() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "GitRemoteTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         let repositoryURL = rootURL.appending(path: "source.git", directoryHint: .isDirectory)
@@ -50,6 +52,8 @@ struct GitRemoteTests {
 
         #expect(relative == file)
         #expect(relative.description == "local:\(rootURL.path)/source")
+        #expect(relative.repositoryName == "source")
+        #expect(file.repositoryName == "source")
     }
 
     @Test
