@@ -18,7 +18,7 @@ Choose the release archive that matches the operating system and architecture:
 | --- | --- |
 | `uri-macos-arm64` | macOS 13 or later on Apple silicon |
 | `uri-macos-x86_64` | macOS 13 or later on an Intel Mac |
-| `uri-linux-arm64` | ARM64 GNU/Linux with glibc 2.38 or later and `GLIBCXX_3.4.32` or later |
+| `uri-linux-aarch64` | ARM64 GNU/Linux with glibc 2.38 or later and `GLIBCXX_3.4.32` or later |
 | `uri-linux-x86_64` | x86-64 GNU/Linux with glibc 2.38 or later and `GLIBCXX_3.4.32` or later |
 
 All platforms require a `git` executable on `PATH`. SSH Git remotes also require
@@ -37,8 +37,7 @@ swift test
 ```
 
 Releases contain only the `uri` executable. Linux release archives use the
-static Swift standard library. Every platform archive is accompanied by a
-SHA-256 file.
+static Swift standard library.
 
 ## Patchset layout and compatibility
 
@@ -252,8 +251,8 @@ existing workspace. Completion never contacts Git or HTTP sources; an explicit
 remote SOURCE simply has no repository-derived candidates. Free-form new
 identifiers remain accepted even when no candidate is offered.
 
-An exact `v2.0.0` release tag reports `2.0.0`; development builds report
-`dev+<short-commit>`.
+An exact release tag reports its version, including prerelease identifiers such
+as `v2.0.0-rc.1`; development builds report `dev+<short-commit>`.
 
 ## Migrating from 1.x
 

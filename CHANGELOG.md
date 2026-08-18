@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-08-18
+
 ### Added
 
 - Commands can now read patchsets from an explicit local directory, a public
@@ -46,12 +48,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   they provide local, context-aware VERSION, PATCHSET, FEATURE, inheritance,
   dependency, TARGET, and ephemeral workspace candidates without contacting
   remote sources.
-- `uri --version` now reports `2.0.0` for an exact `v2.0.0` release build and
-  `dev+<short-commit>` for development builds.
 
 ### Fixed
 
 - Restored 1.x root manifest compatibility for the `branch-prefix` wire key and
   the legacy `uri` branch prefix and `URI <uri@uri.life>` committer defaults.
 
-[Unreleased]: https://github.com/uri-life/uri/commits/main
+[Unreleased]: https://github.com/uri-life/uri/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/uri-life/uri/releases/tag/v2.0.0-rc.1
