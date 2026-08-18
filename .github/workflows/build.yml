@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 env:
+  SWIFT_VERSION: 6.3.3
   VG_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
   VG_COMMIT: ${{ github.sha }}
 
@@ -40,9 +41,9 @@ jobs:
             build_arguments: --static-swift-stdlib
           - os: ubuntu-24.04-arm
             platform: linux
-            architecture: arm64
+            architecture: aarch64
             file_architecture: aarch64
-            artifact: uri-linux-arm64
+            artifact: uri-linux-aarch64
             build_arguments: --static-swift-stdlib
 
     steps:
@@ -53,7 +54,23 @@ jobs:
         if: runner.os == 'macOS'
         run: sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
 
-      - name: Install Swiftly and Swift 6.3.3
+      - name: Cache Swiftly toolchain on macOS
+        if: runner.os == 'macOS'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.swiftly
+            ~/Library/Developer/Toolchains/swift-${{ env.SWIFT_VERSION }}-RELEASE.xctoolchain
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-v1
+
+      - name: Cache Swiftly toolchain on Linux
+        if: runner.os == 'Linux'
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/swiftly
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}-v1
+
+      - name: Install Swiftly and Swift ${{ env.SWIFT_VERSION }}
         shell: bash
         run: |
           set -euo pipefail
@@ -89,8 +106,8 @@ jobs:
             --quiet-shell-followup
           # shellcheck source=/dev/null
           source "${_swiftly_environment}"
-          _post_install_file="${RUNNER_TEMP}/swiftly-post-install.sh"
-          swiftly install 6.3.3 \
+          _post_install_file="${SWIFTLY_HOME_DIR}/post-install.sh"
+          swiftly install "${SWIFT_VERSION}" \
             --assume-yes \
             --post-install-file="${_post_install_file}"
           if test -s "${_post_install_file}"; then
@@ -103,13 +120,13 @@ jobs:
           dirname "$(command -v swiftly)" >> "${GITHUB_PATH}"
 
       - name: Verify toolchain
-        run: swiftly run swift --version +6.3.3
+        run: swiftly run swift --version +"${SWIFT_VERSION}"
 
       - name: Discover tests
-        run: swiftly run swift test list --scratch-path .build-ci-tests +6.3.3
+        run: swiftly run swift test list --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
 
       - name: Run complete test suite
-        run: swiftly run swift test --scratch-path .build-ci-tests +6.3.3
+        run: swiftly run swift test --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
 
       - name: Build release executable
         run: >-
@@ -117,7 +134,7 @@ jobs:
           --scratch-path .build-ci-release
           --configuration release
           ${{ matrix.build_arguments }}
-          +6.3.3
+          +"${SWIFT_VERSION}"
 
       - name: Verify and package executable
         shell: bash
@@ -128,7 +145,7 @@ jobs:
             --configuration release \
             ${{ matrix.build_arguments }} \
             --show-bin-path \
-            +6.3.3)"
+            +"${SWIFT_VERSION}")"
           _binary_path="${_binary_directory}/uri"
           test -x "${_binary_path}"
           "${_binary_path}" --help >/dev/null
@@ -149,23 +166,12 @@ jobs:
           _archive="artifacts/${{ matrix.artifact }}.tar.gz"
           tar -czf "${_archive}" -C "${_binary_directory}" uri
           tar -tzf "${_archive}" | grep -Fxq uri
-          (
-            cd artifacts
-            _archive_name="${{ matrix.artifact }}.tar.gz"
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "${_archive_name}" > "${_archive_name}.sha256"
-            else
-              shasum -a 256 "${_archive_name}" > "${_archive_name}.sha256"
-            fi
-          )
 
       - name: Upload packaged executable
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            artifacts/${{ matrix.artifact }}.tar.gz
-            artifacts/${{ matrix.artifact }}.tar.gz.sha256
+          path: artifacts/${{ matrix.artifact }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -176,6 +182,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
       - name: Download every platform artifact
         uses: actions/download-artifact@v8
         with:
@@ -183,16 +192,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Verify checksums
-        working-directory: artifacts
-        run: sha256sum --check *.sha256
-
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "${GITHUB_REF_NAME}"
           artifacts/*.tar.gz
-          artifacts/*.sha256
           --generate-notes
           --verify-tag
