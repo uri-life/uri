@@ -54,4 +54,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Restored 1.x root manifest compatibility for the `branch-prefix` wire key and
   the legacy `uri` branch prefix and `URI <uri@uri.life>` committer defaults.
 
-[Unreleased]: https://github.com/uri-life/uri/commits/next
+[Unreleased]: https://github.com/uri-life/uri/commits/main
