@@ -18,7 +18,9 @@ struct URIWorkflowTests {
             currentDirectoryURL: fixture.root,
         )
         let reference = try PatchsetReference(upstreamVersion: "v1.0.0", patchsetVersion: "p1")
-        let workflow = URIWorkflow(paths: .init(homeURL: fixture.home))
+        let paths = RuntimePaths(homeURL: fixture.home)
+        let workflow = URIWorkflow(paths: paths)
+        let operationIndex = OperationIndex(paths: paths)
 
         let expandTarget = try fixture.cloneTarget(named: "expand")
         let expanded = try await workflow.expand(
@@ -36,6 +38,11 @@ struct URIWorkflowTests {
             try fixture.gitString(["-C", expandTarget.path, "branch", "--show-current"])
                 == "uri/v1.0.0/p1/feature",
         )
+        let expandedListings = try await operationIndex.list()
+        #expect(expandedListings.count == 1)
+        #expect(expandedListings[0].targetURL.path == expandTarget.path)
+        #expect(expandedListings[0].state.mode == .expand)
+        #expect(expandedListings[0].state.phase == .active)
 
         try fixture.write("base\nfeature\nedited\n", to: expandTarget.appending(path: "content.txt"))
         _ = try fixture.git(["-C", expandTarget.path, "add", "content.txt"])
@@ -59,6 +66,7 @@ struct URIWorkflowTests {
         #expect(
             try fixture.gitString(["-C", expandTarget.path, "branch", "--show-current"]).isEmpty,
         )
+        #expect(try await operationIndex.list().isEmpty)
 
         let applyTarget = try fixture.cloneTarget(named: "apply")
         let applied = try await workflow.apply(
@@ -73,6 +81,7 @@ struct URIWorkflowTests {
             try String(contentsOf: applyTarget.appending(path: "content.txt"), encoding: .utf8)
                 == "base\nfeature\nedited\n",
         )
+        #expect(try await operationIndex.list().isEmpty)
     }
 
     @Test
@@ -104,6 +113,50 @@ struct URIWorkflowTests {
     }
 
     @Test
+    func `index registration failure leaves the target checkout and state unchanged`() async throws {
+        let fixture = try GenericWorkflowFixture()
+        defer { fixture.remove() }
+        try fixture.prepare()
+        let source = try PatchsetSourceLocator.locate(
+            fixture.patchset.path,
+            currentDirectoryURL: fixture.root,
+        )
+        let reference = try PatchsetReference(upstreamVersion: "v1.0.0", patchsetVersion: "p1")
+        let target = try fixture.cloneTarget(named: "index-failure")
+        let startingBranch = try fixture.gitString(["-C", target.path, "branch", "--show-current"])
+        let startingCommit = try fixture.gitString(["-C", target.path, "rev-parse", "HEAD"])
+        let paths = RuntimePaths(homeURL: fixture.home)
+        try FileManager.default.createDirectory(
+            at: paths.rootURL,
+            withIntermediateDirectories: true,
+        )
+        try Data().write(to: paths.operationIndexURL)
+
+        await #expect(throws: URIError.self) {
+            _ = try await URIWorkflow(paths: paths).expand(
+                source: source,
+                reference: reference,
+                featureID: "feature",
+                targetURL: target,
+                currentDirectoryURL: fixture.root,
+                ephemeral: .none,
+                includeDevelopmentDependencies: true,
+                force: false,
+            )
+        }
+
+        #expect(try fixture.gitString(["-C", target.path, "branch", "--show-current"])
+            == startingBranch)
+        #expect(try fixture.gitString(["-C", target.path, "rev-parse", "HEAD"])
+            == startingCommit)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: target.appending(path: ".git/uri/state.json").path,
+            ),
+        )
+    }
+
+    @Test
     func `expand conflict can be resolved and continued from saved workflow state`() async throws {
         let fixture = try GenericWorkflowFixture()
         defer { fixture.remove() }
@@ -114,7 +167,8 @@ struct URIWorkflowTests {
             currentDirectoryURL: fixture.root,
         )
         let target = try fixture.cloneTarget(named: "continue")
-        let workflow = URIWorkflow(paths: .init(homeURL: fixture.home))
+        let paths = RuntimePaths(homeURL: fixture.home)
+        let workflow = URIWorkflow(paths: paths)
 
         await #expect(throws: URIError.self) {
             _ = try await workflow.expand(
@@ -128,6 +182,14 @@ struct URIWorkflowTests {
                 force: false,
             )
         }
+        let operationIndex = OperationIndex(paths: paths)
+        let interruptedListings = try await operationIndex.list()
+        #expect(interruptedListings.count == 1)
+        #expect(interruptedListings[0].state.mode == .expand)
+        #expect(interruptedListings[0].state.phase != .active)
+        let indexStore = OperationIndexStore(paths: paths)
+        try indexStore.remove(targetURL: target)
+        #expect(try await operationIndex.list().isEmpty)
         try fixture.write("resolved\n", to: target.appending(path: "content.txt"))
         _ = try fixture.git(["-C", target.path, "add", "content.txt"])
 
@@ -142,6 +204,30 @@ struct URIWorkflowTests {
             try String(contentsOf: target.appending(path: "content.txt"), encoding: .utf8)
                 == "resolved\n",
         )
+        let continuedListings = try await operationIndex.list()
+        #expect(continuedListings.count == 1)
+        #expect(continuedListings[0].state.phase == .active)
+        try indexStore.remove(targetURL: target)
+        try FileManager.default.removeItem(at: paths.operationIndexURL)
+        try Data().write(to: paths.operationIndexURL)
+
+        await #expect(throws: URIError.self) {
+            _ = try await workflow.collapse(
+                targetURL: target,
+                currentDirectoryURL: fixture.root,
+                ephemeralID: nil,
+                recursive: false,
+                discard: true,
+            )
+        }
+        #expect(
+            FileManager.default.fileExists(
+                atPath: target.appending(path: ".git/uri/state.json").path,
+            ),
+        )
+        #expect(try fixture.gitString(["-C", target.path, "branch", "--show-current"])
+            == result.branch)
+        try FileManager.default.removeItem(at: paths.operationIndexURL)
 
         _ = try await workflow.collapse(
             targetURL: target,
@@ -150,6 +236,7 @@ struct URIWorkflowTests {
             recursive: false,
             discard: true,
         )
+        #expect(try await operationIndex.list().isEmpty)
     }
 
     @Test
@@ -165,7 +252,8 @@ struct URIWorkflowTests {
         let target = try fixture.cloneTarget(named: "abort")
         let startingBranch = try fixture.gitString(["-C", target.path, "branch", "--show-current"])
         let startingCommit = try fixture.gitString(["-C", target.path, "rev-parse", "HEAD"])
-        let workflow = URIWorkflow(paths: .init(homeURL: fixture.home))
+        let paths = RuntimePaths(homeURL: fixture.home)
+        let workflow = URIWorkflow(paths: paths)
 
         await #expect(throws: URIError.self) {
             _ = try await workflow.apply(
@@ -176,6 +264,30 @@ struct URIWorkflowTests {
                 ephemeral: .none,
             )
         }
+        let operationIndex = OperationIndex(paths: paths)
+        let interruptedListings = try await operationIndex.list()
+        #expect(interruptedListings.count == 1)
+        #expect(interruptedListings[0].state.mode == .apply)
+        #expect(interruptedListings[0].state.phase != .active)
+        try OperationIndexStore(paths: paths).remove(targetURL: target)
+        try FileManager.default.removeItem(at: paths.operationIndexURL)
+        try Data().write(to: paths.operationIndexURL)
+
+        await #expect(throws: URIError.self) {
+            _ = try await workflow.abort(
+                mode: .apply,
+                targetURL: target,
+                currentDirectoryURL: fixture.root,
+                ephemeralID: nil,
+            )
+        }
+        #expect(
+            FileManager.default.fileExists(
+                atPath: target.appending(path: ".git/uri/state.json").path,
+            ),
+        )
+        try FileManager.default.removeItem(at: paths.operationIndexURL)
+
         _ = try await workflow.abort(
             mode: .apply,
             targetURL: target,
@@ -196,6 +308,7 @@ struct URIWorkflowTests {
                 atPath: target.appending(path: ".git/uri/state.json").path,
             ),
         )
+        #expect(try await operationIndex.list().isEmpty)
     }
 
     @Test
@@ -347,6 +460,13 @@ private final class GenericWorkflowFixture {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ],
+            uniquingKeysWith: { _, override in override },
+        )
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output

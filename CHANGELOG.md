@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Active normal targets now have a global discovery index under `~/.uri` while
+  their Git-local operation state remains authoritative for recovery.
+
 ## [2.0.0-rc.2] - 2026-08-18
 
 ### Changed

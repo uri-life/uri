@@ -46,6 +46,8 @@ public struct URIWorkflow {
 
     private let stateStore: OperationStateStore
 
+    private let operationIndex: OperationIndex
+
     public init(
         git: Git = .init(),
         paths: RuntimePaths = .init(),
@@ -55,6 +57,7 @@ public struct URIWorkflow {
         self.sourceResolver = .init(git: git, paths: paths)
         self.ephemeralManager = .init(paths: paths, git: git)
         self.stateStore = .init()
+        self.operationIndex = .init(paths: paths, git: git)
     }
 
     public func expand(
@@ -104,6 +107,9 @@ public struct URIWorkflow {
         catch {
             let stateExists = (try? await hasOperationState(preparedTarget)) ?? false
             if !stateExists {
+                if let preparedTarget {
+                    try? operationIndex.remove(for: preparedTarget.repository)
+                }
                 try? sourceResolver.removeSnapshot(at: resolvedSource.snapshotURL)
                 if let workspace = preparedTarget?.workspace {
                     try? ephemeralManager.removeUninitialized(workspace)
@@ -153,6 +159,9 @@ public struct URIWorkflow {
         catch {
             let stateExists = (try? await hasOperationState(preparedTarget)) ?? false
             if !stateExists {
+                if let preparedTarget {
+                    try? operationIndex.remove(for: preparedTarget.repository)
+                }
                 try? sourceResolver.removeSnapshot(at: resolvedSource.snapshotURL)
                 if let workspace = preparedTarget?.workspace {
                     try? ephemeralManager.removeUninitialized(workspace)
@@ -183,6 +192,7 @@ public struct URIWorkflow {
         guard state.phase != .active else {
             throw URIError.operationNotFound("The saved \(state.mode.rawValue) operation is already complete.")
         }
+        try operationIndex.register(state, for: target.repository)
         let patchset = try resolvedRepository(from: state)
         let reference = try PatchsetReference(
             upstreamVersion: state.upstreamVersion,
@@ -237,6 +247,7 @@ public struct URIWorkflow {
         )
         let state = try stateStore.load(from: stateURL)
         try validate(state: state, expectedMode: expectedMode, target: target)
+        try operationIndex.register(state, for: target.repository)
         let committer = try GitIdentity(name: state.committerName, email: state.committerEmail)
 
         if try await target.repository.isMailboxApplyInProgress() {
@@ -250,6 +261,7 @@ public struct URIWorkflow {
         }
         else {
             try stateStore.remove(at: stateURL)
+            try? operationIndex.remove(for: target.repository)
             try sourceResolver.removeSnapshot(at: state.snapshotPath.map({ URL(filePath: $0) }))
         }
         return .init(
@@ -286,6 +298,7 @@ public struct URIWorkflow {
                 "The expansion has an unresolved conflict; use expand --continue or --abort first.",
             )
         }
+        try operationIndex.register(state, for: target.repository)
         let status = try await target.repository.status()
         guard status.isCompletelyClean else {
             throw URIError.dirtyTarget(
@@ -316,6 +329,7 @@ public struct URIWorkflow {
         }
         else {
             try stateStore.remove(at: stateURL)
+            try? operationIndex.remove(for: target.repository)
             try sourceResolver.removeSnapshot(at: state.snapshotPath.map({ URL(filePath: $0) }))
         }
         return .init(
@@ -356,6 +370,9 @@ public struct URIWorkflow {
             matches: rootManifest.upstream,
             relativeTo: source.repository.rootURL,
         )
+        if target.workspace == nil {
+            try operationIndex.register(for: repository)
+        }
 
         let startCommit = try await repository.currentCommit()
         let startBranch = try await repository.currentBranch()
@@ -539,6 +556,7 @@ public struct URIWorkflow {
         }
         else {
             try stateStore.remove(at: stateURL)
+            try? operationIndex.remove(for: target.repository)
             try sourceResolver.removeSnapshot(at: state.snapshotPath.map({ URL(filePath: $0) }))
         }
         return .init(

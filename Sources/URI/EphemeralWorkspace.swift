@@ -125,12 +125,27 @@ public struct EphemeralWorkspaceManager: Sendable {
     }
 
     public func list() throws -> [EphemeralListing] {
+        try workspaceURLs().compactMap({ url in
+            try listing(at: url)
+        }).sorted(by: { $0.id < $1.id })
+    }
+
+    func validListings() throws -> [EphemeralListing] {
+        var listings = [EphemeralListing]()
+        for url in try workspaceURLs() {
+            if let listing = try? listing(at: url) {
+                listings.append(listing)
+            }
+        }
+        return listings.sorted(by: { $0.id < $1.id })
+    }
+
+    private func workspaceURLs() throws -> [URL] {
         guard isDirectory(paths.ephemeralRootURL) else {
             return []
         }
-        let urls: [URL]
         do {
-            urls = try FileManager.default.contentsOfDirectory(
+            return try FileManager.default.contentsOfDirectory(
                 at: paths.ephemeralRootURL,
                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles],
@@ -139,17 +154,17 @@ public struct EphemeralWorkspaceManager: Sendable {
         catch {
             throw URIError.fileSystem("Could not list ephemeral workspaces: \(error)")
         }
+    }
 
-        return try urls.compactMap { url in
-            let id = url.lastPathComponent
-            guard (try? Self.validateID(id)) != nil else {
-                return nil
-            }
-            let workspace = try workspace(id: id)
-            let state = try stateStore.load(from: workspace.stateURL)
-            try validateMetadata(state, workspace: workspace)
-            return .init(id: id, state: state, path: workspace.repositoryURL.path)
-        }.sorted(by: { $0.id < $1.id })
+    private func listing(at url: URL) throws -> EphemeralListing? {
+        let id = url.lastPathComponent
+        guard (try? Self.validateID(id)) != nil else {
+            return nil
+        }
+        let workspace = try workspace(id: id)
+        let state = try stateStore.load(from: workspace.stateURL)
+        try validateMetadata(state, workspace: workspace)
+        return .init(id: id, state: state, path: workspace.repositoryURL.path)
     }
 
     public func vanish(id: String, force: Bool) async throws {

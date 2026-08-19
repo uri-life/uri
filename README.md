@@ -206,8 +206,15 @@ git rev-parse --git-path uri/state.json
 Ephemeral state is `~/.uri/ephemeral/<ID>/state.json`. It records the operation
 mode and phase, original source and fixed snapshot, VERSION/PATCHSET/FEATURE,
 application order and index, target, starting and upstream baseline commits,
-branch policy, committer, and ephemeral ID. There is no global "last
-repository" pointer.
+branch policy, committer, and ephemeral ID.
+
+Active normal targets also have versioned discovery records under
+`~/.uri/operations/`. Each record identifies one canonical target path; the
+target's `uri/state.json` remains the authoritative recovery state. Completed
+normal `apply`, `collapse`, and abort operations remove their discovery records,
+while a completed `expand` remains discoverable until it is collapsed or
+aborted. Missing, moved, or invalid targets are ignored without deleting their
+records. The index is not a global "last repository" pointer.
 
 HTTP and Git sources get one fixed snapshot per operation under
 `~/.uri/cache/operations/`. HTTP redirects are followed, required 404s are

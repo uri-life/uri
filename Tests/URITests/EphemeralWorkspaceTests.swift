@@ -38,6 +38,11 @@ struct EphemeralWorkspaceTests {
                 == paths.repositoryURL(id: "peach", repositoryName: "upstream").path,
         )
         #expect(result.targetURL.lastPathComponent == "upstream")
+        let operationListings = try await OperationIndex(paths: paths).list()
+        #expect(operationListings.count == 1)
+        #expect(operationListings[0].state.ephemeralID == "peach")
+        #expect(operationListings[0].targetURL.path == result.targetURL.path)
+        #expect(!FileManager.default.fileExists(atPath: paths.operationIndexURL.path))
 
         await #expect(throws: URIError.self) {
             _ = try await workflow.collapse(
@@ -50,6 +55,7 @@ struct EphemeralWorkspaceTests {
         }
         try await manager.vanish(id: "peach", force: false)
         #expect(!FileManager.default.fileExists(atPath: paths.ephemeralURL(id: "peach").path))
+        #expect(try await OperationIndex(paths: paths).list().isEmpty)
     }
 
     @Test
@@ -74,6 +80,12 @@ struct EphemeralWorkspaceTests {
             includeDevelopmentDependencies: true,
             force: false,
         )
+        let operationListings = try await OperationIndex(paths: paths).list()
+        #expect(operationListings.count == 1)
+        #expect(operationListings[0].state.ephemeralID == "plum")
+        #expect(operationListings[0].state.mode == .expand)
+        #expect(operationListings[0].state.phase == .active)
+        #expect(!FileManager.default.fileExists(atPath: paths.operationIndexURL.path))
 
         _ = try await workflow.collapse(
             targetURL: nil,
@@ -83,6 +95,7 @@ struct EphemeralWorkspaceTests {
             discard: true,
         )
         #expect(!FileManager.default.fileExists(atPath: paths.ephemeralURL(id: "plum").path))
+        #expect(try await OperationIndex(paths: paths).list().isEmpty)
     }
 
     @Test
@@ -308,6 +321,13 @@ private final class EphemeralFixture {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ],
+            uniquingKeysWith: { _, override in override },
+        )
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output

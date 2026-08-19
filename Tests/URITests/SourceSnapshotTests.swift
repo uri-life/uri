@@ -221,6 +221,13 @@ struct SourceSnapshotTests {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ],
+            uniquingKeysWith: { _, override in override },
+        )
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output

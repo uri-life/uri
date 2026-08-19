@@ -17,6 +17,10 @@ public struct RuntimePaths: Sendable {
         rootURL.appending(path: "ephemeral", directoryHint: .isDirectory)
     }
 
+    public var operationIndexURL: URL {
+        rootURL.appending(path: "operations", directoryHint: .isDirectory)
+    }
+
     public var operationCacheURL: URL {
         rootURL
             .appending(path: "cache", directoryHint: .isDirectory)
