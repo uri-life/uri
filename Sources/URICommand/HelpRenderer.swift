@@ -1,5 +1,3 @@
-import Foundation
-
 struct HelpRenderer {
 
     let terminal: Terminal
@@ -10,7 +8,7 @@ struct HelpRenderer {
         terminal.output("")
         terminal.output(terminal.styled("USAGE", as: .bold, to: .standardOutput))
         terminal.output(
-            "  \(terminal.styled(UsageRenderer().renderRoot(CommandCatalog.rootForm), as: .cyan, to: .standardOutput))",
+            "  \(syntaxRenderer.render(UsageRenderer().renderRoot(CommandCatalog.rootForm)))",
         )
         renderOptions(CommandCatalog.rootOptions)
         terminal.output("")
@@ -20,7 +18,9 @@ struct HelpRenderer {
                 + [("help", "Show help information for a command.")],
         )
         terminal.output("")
-        terminal.output("  Run 'uri help <command>' for detailed help.")
+        terminal.output(
+            "  Run '\(syntaxRenderer.render("uri help <command>"))' for detailed help.",
+        )
     }
 
     func render(_ command: CommandDefinition) {
@@ -29,9 +29,7 @@ struct HelpRenderer {
         terminal.output("")
         terminal.output(terminal.styled("USAGE", as: .bold, to: .standardOutput))
         for usage in UsageRenderer().render(command) {
-            terminal.output(
-                "  \(terminal.styled(usage, as: .cyan, to: .standardOutput))",
-            )
+            terminal.output("  \(syntaxRenderer.render(usage))")
         }
         if !command.arguments.isEmpty {
             terminal.output("")
@@ -44,30 +42,19 @@ struct HelpRenderer {
     private func renderOptions(_ options: [OptionDefinition]) {
         terminal.output("")
         terminal.output(terminal.styled("OPTIONS", as: .bold, to: .standardOutput))
-        let rows = options.map({ option in
-            (
-                terminal.styled(option.synopsis, as: .cyan, to: .standardOutput),
-                option.help
-            )
-        })
+        let rows = options.map({ ($0.synopsis, $0.help) })
         renderRows(rows)
     }
 
     private func renderRows(_ rows: [(String, String)]) {
-        let width = rows.map({ plainLength($0.0) }).max() ?? 0
+        let width = rows.map({ $0.0.count }).max() ?? 0
         for (name, help) in rows {
-            let visibleName = plainLength(name)
-            let padding = String(repeating: " ", count: max(2, width - visibleName + 2))
-            terminal.output("  \(name)\(padding)\(help)")
+            let padding = String(repeating: " ", count: max(2, width - name.count + 2))
+            terminal.output("  \(syntaxRenderer.render(name))\(padding)\(help)")
         }
     }
 
-    private func plainLength(_ value: String) -> Int {
-        var result = value
-        for style in [TerminalStyle.bold, .cyan, .green, .yellow, .red] {
-            result = result.replacingOccurrences(of: "\u{001B}[\(style.rawValue)m", with: "")
-        }
-        result = result.replacingOccurrences(of: "\u{001B}[0m", with: "")
-        return result.count
+    private var syntaxRenderer: CommandSyntaxRenderer {
+        .init(terminal: terminal, stream: .standardOutput)
     }
 }

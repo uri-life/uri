@@ -91,19 +91,25 @@ struct URICommand {
         terminal: Terminal,
     ) {
         let label = terminal.styled("usage:", as: .bold, to: .standardError)
+        let syntaxRenderer =
+            CommandSyntaxRenderer(terminal: terminal, stream: .standardError)
         if let commandName, let command = CommandCatalog.command(named: commandName) {
             for usage in UsageRenderer().render(command) {
                 terminal.errorOutput(
-                    "\(label) \(terminal.styled(usage, as: .cyan, to: .standardError))",
+                    "\(label) \(syntaxRenderer.render(usage))",
                 )
             }
-            terminal.errorOutput("Run 'uri help \(commandName)' for more information.")
+            terminal.errorOutput(
+                "Run '\(syntaxRenderer.render("uri help \(commandName)"))' for more information.",
+            )
         }
         else {
             terminal.errorOutput(
-                "\(label) \(terminal.styled(UsageRenderer().renderRoot(CommandCatalog.rootForm), as: .cyan, to: .standardError))",
+                "\(label) \(syntaxRenderer.render(UsageRenderer().renderRoot(CommandCatalog.rootForm)))",
             )
-            terminal.errorOutput("Run 'uri --help' for more information.")
+            terminal.errorOutput(
+                "Run '\(syntaxRenderer.render("uri --help"))' for more information.",
+            )
         }
     }
 }
