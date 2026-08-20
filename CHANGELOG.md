@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `apply --dev` can now include development dependencies recursively when
+  applying a patchset.
+
 ## [2.0.0-rc.3] - 2026-08-19
 
 ### Added

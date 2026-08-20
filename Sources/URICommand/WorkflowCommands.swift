@@ -78,6 +78,8 @@ struct Apply {
 
     let abortOperation: Bool
 
+    let includeDevelopmentDependencies: Bool
+
     let target: TargetArgumentValue
 
     func run(terminal: Terminal) async throws {
@@ -124,6 +126,7 @@ struct Apply {
             targetURL: CLI.targetURL(target),
             currentDirectoryURL: CLI.currentDirectoryURL,
             ephemeral: try CLI.ephemeralRequest(target),
+            includeDevelopmentDependencies: includeDevelopmentDependencies,
         )
         CLI.report(result, verb: "Applied", terminal: terminal)
     }

@@ -85,6 +85,78 @@ struct URIWorkflowTests {
     }
 
     @Test
+    func `apply includes recursive development dependencies only when requested`() async throws {
+        let fixture = try GenericWorkflowFixture()
+        defer { fixture.remove() }
+        try fixture.prepare()
+        let reference = try fixture.prepareDevelopmentPatchset()
+        let source = try PatchsetSourceLocator.locate(
+            fixture.patchset.path,
+            currentDirectoryURL: fixture.root,
+        )
+        let workflow = URIWorkflow(paths: .init(homeURL: fixture.home))
+
+        let regularTarget = try fixture.cloneTarget(named: "apply-regular")
+        _ = try await workflow.apply(
+            source: source,
+            reference: reference,
+            targetURL: regularTarget,
+            currentDirectoryURL: fixture.root,
+            ephemeral: .none,
+        )
+        #expect(
+            FileManager.default.fileExists(
+                atPath: regularTarget.appending(path: "regular-base.txt").path,
+            ),
+        )
+        #expect(
+            FileManager.default.fileExists(
+                atPath: regularTarget.appending(path: "feature.txt").path,
+            ),
+        )
+        for featureID in ["regular-helper", "dev-leaf", "dev-middle"] {
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: regularTarget.appending(path: "\(featureID).txt").path,
+                ),
+            )
+        }
+
+        let developmentTarget = try fixture.cloneTarget(named: "apply-development")
+        _ = try await workflow.apply(
+            source: source,
+            reference: reference,
+            targetURL: developmentTarget,
+            currentDirectoryURL: fixture.root,
+            ephemeral: .none,
+            includeDevelopmentDependencies: true,
+        )
+        for featureID in [
+            "regular-base", "regular-helper", "dev-leaf", "dev-middle", "feature",
+        ] {
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: developmentTarget.appending(path: "\(featureID).txt").path,
+                ),
+            )
+        }
+        let subjects = try fixture.gitString([
+            "-C", developmentTarget.path, "log", "--reverse", "--format=%s",
+            "v1.0.0..HEAD",
+        ]).split(separator: "\n").map(String.init)
+        let regularBaseIndex = try #require(subjects.firstIndex(of: "Add regular-base"))
+        let regularHelperIndex = try #require(subjects.firstIndex(of: "Add regular-helper"))
+        let developmentLeafIndex = try #require(subjects.firstIndex(of: "Add dev-leaf"))
+        let developmentMiddleIndex = try #require(subjects.firstIndex(of: "Add dev-middle"))
+        let featureIndex = try #require(subjects.firstIndex(of: "Add feature"))
+
+        #expect(regularBaseIndex < featureIndex)
+        #expect(regularHelperIndex < developmentMiddleIndex)
+        #expect(developmentLeafIndex < developmentMiddleIndex)
+        #expect(developmentMiddleIndex < featureIndex)
+    }
+
+    @Test
     func `dirty targets are rejected before checkout`() async throws {
         let fixture = try GenericWorkflowFixture()
         defer { fixture.remove() }
@@ -440,6 +512,39 @@ private final class GenericWorkflowFixture {
         return reference
     }
 
+    func prepareDevelopmentPatchset() throws -> PatchsetReference {
+        let repository = try PatchsetRepository(rootURL: patchset)
+        let reference = try PatchsetReference(
+            upstreamVersion: "v1.0.0",
+            patchsetVersion: "development",
+        )
+        try repository.createPatchset(reference)
+        let features = [
+            Feature(id: "regular-base"),
+            Feature(id: "regular-helper"),
+            Feature(id: "dev-leaf"),
+            Feature(
+                id: "dev-middle",
+                dependencies: ["regular-helper"],
+                devDependencies: ["dev-leaf"],
+            ),
+            Feature(
+                id: "feature",
+                dependencies: ["regular-base"],
+                devDependencies: ["dev-middle"],
+            ),
+        ]
+        for feature in features {
+            try repository.addFeature(feature, to: reference)
+            try repository.replacePatch(
+                authorFilePatch(named: feature.id),
+                identifiedBy: .feature(feature.id),
+                in: reference,
+            )
+        }
+        return reference
+    }
+
     private func authorPatch(named name: String, content: String) throws -> Data {
         let author = root.appending(path: name, directoryHint: .isDirectory)
         _ = try git(["clone", "-q", upstream.path, author.path])
@@ -448,6 +553,19 @@ private final class GenericWorkflowFixture {
         _ = try git([
             "-C", author.path, "-c", "user.name=Author", "-c", "user.email=a@example.com",
             "commit", "-q", "-m", "Change content for \(name)",
+        ])
+        return try git(["-C", author.path, "format-patch", "--stdout", "HEAD~1..HEAD"]).output
+    }
+
+    private func authorFilePatch(named name: String) throws -> Data {
+        let author = root.appending(path: "file-\(name)", directoryHint: .isDirectory)
+        _ = try git(["clone", "-q", upstream.path, author.path])
+        let fileName = "\(name).txt"
+        try write("\(name)\n", to: author.appending(path: fileName))
+        _ = try git(["-C", author.path, "add", fileName])
+        _ = try git([
+            "-C", author.path, "-c", "user.name=Author", "-c", "user.email=a@example.com",
+            "commit", "-q", "-m", "Add \(name)",
         ])
         return try git(["-C", author.path, "format-patch", "--stdout", "HEAD~1..HEAD"]).output
     }

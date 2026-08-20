@@ -119,14 +119,17 @@ uri graph --include-dev --format dot ./patches v1.2.3 patch1.0
 uri expand ./patches v1.2.3 patch1.0 feature-a /work/project
 uri expand --no-dev ./patches v1.2.3 patch1.0 feature-a /work/project
 
-# Apply the complete regular dependency graph
+# Apply the dependency graph, optionally including development dependencies
 uri apply ./patches v1.2.3 patch1.0 /work/project
+uri apply --dev ./patches v1.2.3 patch1.0 /work/project
 ```
 
 `expand` creates
 `<branch-prefix>/<VERSION>/<PATCHSET>/<FEATURE>` at every feature boundary and
-includes development dependencies by default. `apply` excludes
-development-only features and creates `<branch-prefix>/<VERSION>/<PATCHSET>`.
+includes development dependencies by default. `apply` excludes development-only
+features by default, while `apply --dev` recursively includes development
+dependencies and their regular dependencies. It creates
+`<branch-prefix>/<VERSION>/<PATCHSET>`.
 Both workflows apply each feature in `ANTE`, main, pair-resolution, and `POST`
 order using `git am --3way`.
 

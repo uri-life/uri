@@ -125,6 +125,7 @@ public struct URIWorkflow {
         targetURL: URL?,
         currentDirectoryURL: URL,
         ephemeral: EphemeralRequest,
+        includeDevelopmentDependencies: Bool = false,
     ) async throws -> WorkflowResult {
         let resolvedSource = try await sourceResolver.resolve(
             source,
@@ -143,7 +144,11 @@ public struct URIWorkflow {
                 sourceBaseURL: resolvedSource.repository.rootURL,
             )
             preparedTarget = target
-            let order = try resolvedSource.repository.resolve(reference).applicationOrder()
+            let resolved = try resolvedSource.repository.resolve(reference)
+            let order =
+                try includeDevelopmentDependencies
+                ? resolved.orderedFeatures(in: .includingDevelopment)
+                : resolved.applicationOrder()
             let result = try await begin(
                 mode: .apply,
                 source: resolvedSource,

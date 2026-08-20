@@ -22,6 +22,15 @@ struct CompletionEngineTests {
     }
 
     @Test
+    func `apply development option is completed only for a new operation`() {
+        let engine = CompletionEngine()
+
+        #expect(values(engine.complete(["apply", "--d"])) == ["--dev"])
+        #expect(values(engine.complete(["apply", "--continue", "--d"])).isEmpty)
+        #expect(values(engine.complete(["apply", "--abort", "--d"])).isEmpty)
+    }
+
+    @Test
     func `local hierarchy candidates follow positional source version and patchset context`() throws {
         let fixture = try CompletionFixture()
         defer { fixture.remove() }

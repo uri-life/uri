@@ -45,6 +45,42 @@ struct CommandParserTests {
     }
 
     @Test
+    func `apply development mode defaults to disabled and is position independent for new operations`()
+        throws
+    {
+        let regular = try parsedApply(["apply", "v1", "p1", "./target"])
+        let leading = try parsedApply(["apply", "--dev", "v1", "p1", "./target"])
+        let trailing = try parsedApply(["apply", "v1", "p1", "./target", "--dev"])
+        let ephemeral = try parsedApply([
+            "apply", "v1", "p1", "--ephemeral", "peach", "--dev",
+        ])
+
+        #expect(!regular.includeDevelopmentDependencies)
+        #expect(leading.includeDevelopmentDependencies)
+        #expect(trailing.includeDevelopmentDependencies)
+        #expect(ephemeral.includeDevelopmentDependencies)
+        #expect(ephemeral.target == .ephemeral(id: "peach"))
+    }
+
+    @Test
+    func `apply development mode is rejected during continue and abort`() {
+        let examples = [
+            ["apply", "--continue", "./target", "--dev"],
+            ["apply", "--dev", "--abort", "--ephemeral", "peach"],
+        ]
+
+        for arguments in examples {
+            #expect(
+                throws: CommandUsageError.self,
+                "Accepted: \(arguments.joined(separator: " "))",
+            )
+            {
+                _ = try CommandParser().parse(arguments)
+            }
+        }
+    }
+
+    @Test
     func `workflow TARGET distinguishes omitted path automatic named and equals forms`() throws {
         #expect(try parsedExpand(["expand", "v1", "p1", "feature"]).target == .omitted)
         #expect(

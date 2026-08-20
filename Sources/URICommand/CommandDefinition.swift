@@ -38,6 +38,7 @@ enum OptionID: Equatable, Hashable {
     case force
     case listEphemeral
     case includeDevelopment
+    case development
     case format
     case continueOperation
     case abortOperation
@@ -64,6 +65,7 @@ enum OptionID: Equatable, Hashable {
         case .force: "force"
         case .listEphemeral: "ephemeral"
         case .includeDevelopment: "include-dev"
+        case .development: "dev"
         case .format: "format"
         case .continueOperation: "continue"
         case .abortOperation: "abort"
@@ -504,12 +506,17 @@ enum CommandCatalog {
         ),
         CommandDefinition(
             id: .apply,
-            abstract: "Apply the complete regular dependency graph.",
+            abstract: "Apply a patchset dependency graph.",
             forms: [
-                form([source(), argument(.version), argument(.patchset), target()]),
+                form(
+                    [source(), argument(.version), argument(.patchset), target()],
+                    options: [.development],
+                ),
                 recoveryForm(),
             ],
-            options: workflowOptions,
+            options: workflowOptions + [
+                .init(.development, help: "Include development dependencies.")
+            ],
         ),
         CommandDefinition(
             id: .collapse,

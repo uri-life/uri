@@ -87,6 +87,7 @@ struct URICommandTests {
 
         #expect(code == 0)
         #expect(capture.standardOutput.contains("uri apply [SOURCE] VERSION PATCHSET"))
+        #expect(capture.standardOutput.contains("--dev"))
         #expect(capture.standardOutput.contains("--continue"))
         #expect(capture.standardError.isEmpty)
     }

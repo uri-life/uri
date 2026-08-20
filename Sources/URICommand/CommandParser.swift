@@ -675,6 +675,7 @@ struct CommandParser {
                     values: values,
                     continueOperation: arguments.contains(.continueOperation),
                     abortOperation: arguments.contains(.abortOperation),
+                    includeDevelopmentDependencies: arguments.contains(.development),
                     target: arguments.target,
                 ),
             )
