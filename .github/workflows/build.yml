@@ -112,6 +112,7 @@ jobs:
             --post-install-file="${_post_install_file}"
           if test -s "${_post_install_file}"; then
             if test "${RUNNER_OS}" = Linux; then
+              sudo apt-get update
               sudo bash "${_post_install_file}"
             else
               bash "${_post_install_file}"
@@ -123,10 +124,10 @@ jobs:
         run: swiftly run swift --version +"${SWIFT_VERSION}"
 
       - name: Discover tests
-        run: swiftly run swift test list --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
+        run: swiftly run swift test list --disable-xctest --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
 
       - name: Run complete test suite
-        run: swiftly run swift test --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
+        run: swiftly run swift test --disable-xctest --scratch-path .build-ci-tests +"${SWIFT_VERSION}"
 
       - name: Build release executable
         run: >-
