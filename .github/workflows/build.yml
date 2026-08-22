@@ -21,13 +21,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15-intel
+          - os: macos-26-intel
             platform: macos
             architecture: x86_64
             file_architecture: x86_64
             artifact: uri-macos-x86_64
             build_arguments: ""
-          - os: macos-15
+          - os: macos-26
             platform: macos
             architecture: arm64
             file_architecture: arm64
