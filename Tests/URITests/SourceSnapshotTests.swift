@@ -75,6 +75,73 @@ struct SourceSnapshotTests {
     }
 
     @Test
+    func `HTTP snapshot resolves two patchsets from one root and downloads their patch union`() async throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let firstPatch = try PatchIdentifier.feature("first").filename
+        let secondPatch = try PatchIdentifier.feature("second").filename
+        let client = MockHTTPClient(responses: [
+            "/patches/manifest.yaml": .init(
+                status: 200,
+                chunks: ["upstream: https://example.com/upstream.git\n"],
+            ),
+            "/patches/versions/v1/patches/p1/manifest.yaml": .init(
+                status: 200,
+                chunks: ["features:\n  first: {}\n"],
+            ),
+            "/patches/versions/v2/patches/p2/manifest.yaml": .init(
+                status: 200,
+                chunks: ["features:\n  second: {}\n"],
+            ),
+            "/patches/versions/v1/patches/p1/\(firstPatch)": .init(
+                status: 200,
+                chunks: ["first patch\n"],
+            ),
+            "/patches/versions/v2/patches/p2/\(secondPatch)": .init(
+                status: 200,
+                chunks: ["second patch\n"],
+            ),
+        ])
+        let resolver = PatchsetSourceResolver(
+            paths: .init(homeURL: home),
+            requestExecutor: {
+                try await client.execute($0)
+            },
+        )
+        let first = try PatchsetReference(upstreamVersion: "v1", patchsetVersion: "p1")
+        let second = try PatchsetReference(upstreamVersion: "v2", patchsetVersion: "p2")
+
+        let resolved = try await resolver.resolve(
+            .init(kind: .http, original: "https://example.com/patches"),
+            references: [first, second],
+            includePatches: true,
+        )
+        defer { try? resolver.removeSnapshot(at: resolved.snapshotURL) }
+
+        #expect(Set(try resolved.repository.resolve(first).features.keys) == ["first"])
+        #expect(Set(try resolved.repository.resolve(second).features.keys) == ["second"])
+        #expect(
+            try String(
+                contentsOf: #require(
+                    try resolved.repository.patch(for: "first", inheritedBy: first),
+                ).url,
+                encoding: .utf8,
+            ) == "first patch\n",
+        )
+        #expect(
+            try String(
+                contentsOf: #require(
+                    try resolved.repository.patch(for: "second", inheritedBy: second),
+                ).url,
+                encoding: .utf8,
+            ) == "second patch\n",
+        )
+        let paths = await client.recordedRequests().compactMap({URL(string: $0.url)?.path})
+        #expect(paths.filter({ $0 == "/patches/manifest.yaml" }).count == 1)
+        #expect(paths.filter({ $0.hasSuffix("/manifest.yaml") }).count == 3)
+    }
+
+    @Test
     func `HTTP snapshot reports required 404 and non-success responses`() async throws {
         for status in [404, 500] {
             let home = try temporaryDirectory()

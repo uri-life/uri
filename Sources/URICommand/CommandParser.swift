@@ -16,6 +16,8 @@ enum ParsedOption: Equatable {
     case flag
 
     case value(String)
+
+    case values([String])
 }
 
 enum PositionalToken: Equatable {
@@ -41,6 +43,13 @@ struct ParsedArguments: Equatable {
         }
         return value
     }
+
+    func values(_ id: OptionID) -> [String]? {
+        guard case .values(let values) = options[id] else {
+            return nil
+        }
+        return values
+    }
 }
 
 struct MatchedCommandForm: Equatable {
@@ -63,6 +72,13 @@ struct MatchedCommandForm: Equatable {
         }
         return value
     }
+
+    func values(_ id: OptionID) -> [String]? {
+        guard case .values(let values) = options[id] else {
+            return nil
+        }
+        return values
+    }
 }
 
 enum ParsedCommand {
@@ -74,6 +90,7 @@ enum ParsedCommand {
     case include(Include)
     case list(List)
     case graph(Graph)
+    case diff(Diff)
     case expand(Expand)
     case apply(Apply)
     case collapse(Collapse)
@@ -94,6 +111,8 @@ enum ParsedCommand {
         case .list(let command):
             try await command.run(terminal: terminal)
         case .graph(let command):
+            try await command.run(terminal: terminal)
+        case .diff(let command):
             try await command.run(terminal: terminal)
         case .expand(let command):
             try await command.run(terminal: terminal)
@@ -483,6 +502,30 @@ struct CommandParser {
                 else {
                     options[option.id] = .value(value)
                 }
+            case .values(let names):
+                guard match.attachedValue == nil else {
+                    throw usage(
+                        "Option '--\(option.longName)' requires separate \(names.joined(separator: " ")) values.",
+                        commandName: definition.name,
+                    )
+                }
+                var values = [String]()
+                var valueIndex = arguments.index(after: index)
+                for _ in names {
+                    guard valueIndex < arguments.endIndex,
+                        arguments[valueIndex] != "--",
+                        !arguments[valueIndex].hasPrefix("-")
+                    else {
+                        throw usage(
+                            "Option '--\(option.longName)' requires \(names.joined(separator: " ")).",
+                            commandName: definition.name,
+                        )
+                    }
+                    values.append(arguments[valueIndex])
+                    valueIndex = arguments.index(after: valueIndex)
+                }
+                options[option.id] = .values(values)
+                index = valueIndex
             }
         }
 
@@ -656,6 +699,17 @@ struct CommandParser {
                     values: values,
                     includeDevelopment: arguments.contains(.includeDevelopment),
                     format: Graph.Format(rawValue: arguments.value(.format) ?? "tree")!,
+                ),
+            )
+        case .diff:
+            guard let from = arguments.values(.from), let to = arguments.values(.to) else {
+                fatalError("The diff command form requires --from and --to.")
+            }
+            return .diff(
+                .init(
+                    values: values,
+                    from: from,
+                    to: to,
                 ),
             )
         case .expand:

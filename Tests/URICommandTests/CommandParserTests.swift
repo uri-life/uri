@@ -11,7 +11,7 @@ struct CommandParserTests {
         #expect(
             CommandCatalog.commands.map(\.name) == [
                 "init", "add", "remove", "exclude", "include", "list", "graph",
-                "expand", "apply", "collapse", "vanish",
+                "diff", "expand", "apply", "collapse", "vanish",
             ],
         )
     }
@@ -27,6 +27,11 @@ struct CommandParserTests {
             ["list", "./patches", "v1", "p1"],
             ["list", "--ephemeral"],
             ["graph", "v1", "--include-dev", "p1", "--format=dot"],
+            [
+                "diff", "./patches",
+                "--from", "v1", "p1", "first",
+                "--to", "v2", "p2", "second",
+            ],
             ["expand", "--no-dev", "v1", "p1", "feature", "./target"],
             ["expand", "./target", "--continue"],
             ["expand", "v1", "p1", "feature", "--ephemeral"],
@@ -39,6 +44,47 @@ struct CommandParserTests {
 
         for arguments in examples {
             #expect(throws: Never.self, "Rejected: \(arguments.joined(separator: " "))") {
+                _ = try CommandParser().parse(arguments)
+            }
+        }
+    }
+
+    @Test
+    func `diff requires complete from and to feature operands in either option order`() throws {
+        let forward = try parsedDiff([
+            "diff", "./patches",
+            "--from", "v1", "p1", "first",
+            "--to", "v2", "p2", "second",
+        ])
+        let reversed = try parsedDiff([
+            "diff",
+            "--to", "v2", "p2", "second",
+            "--from", "v1", "p1", "first",
+        ])
+
+        #expect(forward.values == ["./patches"])
+        #expect(forward.from == ["v1", "p1", "first"])
+        #expect(forward.to == ["v2", "p2", "second"])
+        #expect(reversed.values.isEmpty)
+        #expect(reversed.from == forward.from)
+        #expect(reversed.to == forward.to)
+
+        let invalidExamples = [
+            ["diff", "--from", "v1", "p1", "--to", "v2", "p2", "second"],
+            ["diff", "--from", "v1", "p1", "first"],
+            ["diff", "--to", "v2", "p2", "second"],
+            [
+                "diff", "--from=v1", "p1", "first",
+                "--to", "v2", "p2", "second",
+            ],
+            [
+                "diff", "--from", "v1", "p1", "first",
+                "--from", "v1", "p1", "first",
+                "--to", "v2", "p2", "second",
+            ],
+        ]
+        for arguments in invalidExamples {
+            #expect(throws: CommandUsageError.self) {
                 _ = try CommandParser().parse(arguments)
             }
         }
@@ -275,6 +321,11 @@ struct CommandParserTests {
             ["list", "v1", "p1", "extra"],
             ["graph", "v1"],
             ["graph", "v1", "p1", "extra"],
+            [
+                "diff", "extra",
+                "--from", "v1", "p1", "first",
+                "--to", "v2", "p2", "second",
+            ],
             ["expand", "v1", "p1"],
             ["expand", "v1", "p1", "feature", "target", "extra"],
             ["apply", "v1"],
@@ -305,6 +356,14 @@ struct CommandParserTests {
         let invocation = try CommandParser().parse(arguments)
         guard case .run(.expand(let command)) = invocation.action else {
             throw CommandUsageError(message: "Expected expand command.", commandName: "expand")
+        }
+        return command
+    }
+
+    private func parsedDiff(_ arguments: [String]) throws -> Diff {
+        let invocation = try CommandParser().parse(arguments)
+        guard case .run(.diff(let command)) = invocation.action else {
+            throw CommandUsageError(message: "Expected diff command.", commandName: "diff")
         }
         return command
     }

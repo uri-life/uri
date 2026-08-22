@@ -8,6 +8,32 @@ import URICommand
 struct HelpRenderingTests {
 
     @Test
+    func `diff help renders both required feature operands`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: ["--color", "never", "diff", "--help"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
+        )
+
+        #expect(code == 0)
+        #expect(
+            capture.standardOutput.contains(
+                "uri diff [SOURCE] --from VERSION PATCHSET FEATURE --to VERSION PATCHSET FEATURE",
+            ),
+        )
+        #expect(
+            capture.standardOutput.contains(
+                "--from <VERSION> <PATCHSET> <FEATURE>  The feature effect to compare from.",
+            ),
+        )
+        #expect(
+            capture.standardOutput.contains(
+                "--to <VERSION> <PATCHSET> <FEATURE>    The feature effect to compare to.",
+            ),
+        )
+    }
+
+    @Test
     func `always colors commands options and placeholders in root and command help`() async {
         let root = CommandOutputCapture()
         let rootCode = await URICommand.run(

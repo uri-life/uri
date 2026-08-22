@@ -21,6 +21,13 @@ enum CompletionRecord: Equatable {
 
 struct CompletionEngine {
 
+    private struct PendingOption {
+
+        let definition: OptionDefinition
+
+        let values: [String]
+    }
+
     private struct CommandScan {
 
         var positionals = [PositionalToken]()
@@ -31,7 +38,7 @@ struct CompletionEngine {
 
         var parsesOptions = true
 
-        var pendingOption: OptionDefinition?
+        var pendingOption: PendingOption?
 
         var pendingEphemeralTarget = false
     }
@@ -131,6 +138,8 @@ struct CompletionEngine {
                 if option.id == .completion {
                     return []
                 }
+            case .values:
+                return []
             }
         }
 
@@ -202,9 +211,10 @@ struct CompletionEngine {
 
         if let pendingOption = scan.pendingOption {
             return optionValueRecords(
-                pendingOption,
+                pendingOption.definition,
                 prefix: current,
                 attachedPrefix: nil,
+                partialValues: pendingOption.values,
                 scan: scan,
                 progresses: progresses,
             )
@@ -224,6 +234,7 @@ struct CompletionEngine {
                 attached.definition,
                 prefix: attached.value,
                 attachedPrefix: "--\(attached.definition.longName)=",
+                partialValues: [],
                 scan: scan,
                 progresses: progresses,
             )
@@ -377,8 +388,33 @@ struct CompletionEngine {
                 }
                 else if index == committed.count - 1 {
                     scan.options[match.definition.id] = .value("")
-                    scan.pendingOption = match.definition
+                    scan.pendingOption = .init(definition: match.definition, values: [])
                     index += 1
+                }
+                else {
+                    return nil
+                }
+            case .values(let names):
+                guard match.attachedValue == nil else {
+                    return nil
+                }
+                var values = [String]()
+                var valueIndex = index + 1
+                while values.count < names.count,
+                    committed.indices.contains(valueIndex),
+                    committed[valueIndex] != "--",
+                    !committed[valueIndex].hasPrefix("-")
+                {
+                    values.append(committed[valueIndex])
+                    valueIndex += 1
+                }
+                scan.options[match.definition.id] = .values(values)
+                if values.count == names.count {
+                    index = valueIndex
+                }
+                else if valueIndex == committed.count {
+                    scan.pendingOption = .init(definition: match.definition, values: values)
+                    index = valueIndex
                 }
                 else {
                     return nil
@@ -548,6 +584,7 @@ struct CompletionEngine {
         _ option: OptionDefinition,
         prefix: String,
         attachedPrefix: String?,
+        partialValues: [String] = [],
         scan: CommandScan,
         progresses: [FormProgress],
     ) -> [CompletionRecord] {
@@ -570,6 +607,11 @@ struct CompletionEngine {
             default:
                 values = []
             }
+        case .values:
+            values = featureDiffValues(
+                partialValues: partialValues,
+                progresses: progresses,
+            )
         }
 
         return values.compactMap({ value, description in
@@ -580,6 +622,38 @@ struct CompletionEngine {
             }
             return .candidate(value: candidate, description: description)
         })
+    }
+
+    private func featureDiffValues(
+        partialValues: [String],
+        progresses: [FormProgress],
+    ) -> [(String, String)] {
+        switch partialValues.count {
+        case 0:
+            return repositoryValues(progresses: progresses, value: { repository, _ in
+                try repository.upstreamVersions().map({ ($0, "Upstream version.") })
+            })
+        case 1:
+            return repositoryValues(progresses: progresses, value: { repository, _ in
+                try repository.patchsets(in: partialValues[0]).map({
+                    ($0.patchsetVersion, "Patchset version.")
+                })
+            })
+        case 2:
+            guard let reference = try? PatchsetReference(
+                upstreamVersion: partialValues[0],
+                patchsetVersion: partialValues[1],
+            ) else {
+                return []
+            }
+            return repositoryValues(progresses: progresses, value: { repository, _ in
+                try repository.resolve(reference).features.keys.map({
+                    ($0, "Active feature.")
+                })
+            })
+        default:
+            return []
+        }
     }
 
     private func dependencyValues(

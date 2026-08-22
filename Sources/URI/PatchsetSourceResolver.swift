@@ -44,6 +44,18 @@ public struct PatchsetSourceResolver: Sendable {
         reference: PatchsetReference? = nil,
         includePatches: Bool = false,
     ) async throws -> ResolvedPatchsetSource {
+        try await resolve(
+            source,
+            references: reference.map({[$0]}) ?? [],
+            includePatches: includePatches,
+        )
+    }
+
+    public func resolve(
+        _ source: PatchsetSource,
+        references: [PatchsetReference],
+        includePatches: Bool = false,
+    ) async throws -> ResolvedPatchsetSource {
         switch source.kind {
         case .local:
             guard let rootURL = source.localRootURL else {
@@ -51,7 +63,7 @@ public struct PatchsetSourceResolver: Sendable {
             }
             let repository = try PatchsetRepository(rootURL: rootURL)
             _ = try repository.rootManifest()
-            if let reference {
+            for reference in references {
                 _ = try repository.resolve(reference)
             }
             return .init(source: source, repository: repository, snapshotURL: nil)
@@ -66,7 +78,7 @@ public struct PatchsetSourceResolver: Sendable {
                 )
                 let repository = try PatchsetRepository(rootURL: repositoryURL)
                 _ = try repository.rootManifest()
-                if let reference {
+                for reference in references {
                     _ = try repository.resolve(reference)
                 }
                 return .init(source: source, repository: repository, snapshotURL: snapshotURL)
@@ -78,7 +90,7 @@ public struct PatchsetSourceResolver: Sendable {
         case .http:
             return try await resolveHTTP(
                 source,
-                reference: reference,
+                references: references,
                 includePatches: includePatches,
             )
         }
@@ -103,7 +115,7 @@ public struct PatchsetSourceResolver: Sendable {
 
     private func resolveHTTP(
         _ source: PatchsetSource,
-        reference: PatchsetReference?,
+        references: [PatchsetReference],
         includePatches: Bool,
     ) async throws -> ResolvedPatchsetSource {
         guard let rootURL = URL(string: source.original) else {
@@ -119,20 +131,24 @@ public struct PatchsetSourceResolver: Sendable {
             let repository = try PatchsetRepository(rootURL: snapshotURL)
             _ = try repository.rootManifest()
 
-            if let reference {
+            if !references.isEmpty {
                 try await downloadInheritance(
-                    startingAt: reference,
+                    startingAt: references,
                     rootURL: rootURL,
                     snapshotURL: snapshotURL,
                     repository: repository,
                 )
-                let resolved = try repository.resolve(reference)
+                let resolved = try references.map(repository.resolve)
                 if includePatches {
-                    try await downloadPatches(
-                        for: resolved,
-                        rootURL: rootURL,
-                        snapshotURL: snapshotURL,
-                    )
+                    var downloadedPaths = Set<String>()
+                    for patchset in resolved {
+                        try await downloadPatches(
+                            for: patchset,
+                            rootURL: rootURL,
+                            snapshotURL: snapshotURL,
+                            downloadedPaths: &downloadedPaths,
+                        )
+                    }
                 }
             }
             return .init(source: source, repository: repository, snapshotURL: snapshotURL)
@@ -144,26 +160,33 @@ public struct PatchsetSourceResolver: Sendable {
     }
 
     private func downloadInheritance(
-        startingAt reference: PatchsetReference,
+        startingAt references: [PatchsetReference],
         rootURL: URL,
         snapshotURL: URL,
         repository: PatchsetRepository,
     ) async throws {
-        var seen = Set<PatchsetReference>()
-        var current: PatchsetReference? = reference
-        while let reference = current {
-            guard seen.insert(reference).inserted else {
-                throw URIError.invalidState("Circular HTTP patchset inheritance at \(reference).")
+        var downloaded = Set<PatchsetReference>()
+        for startingReference in references {
+            var seen = Set<PatchsetReference>()
+            var current: PatchsetReference? = startingReference
+            while let reference = current {
+                guard seen.insert(reference).inserted else {
+                    throw URIError.invalidState(
+                        "Circular HTTP patchset inheritance at \(reference).",
+                    )
+                }
+                let relativePath = manifestRelativePath(reference)
+                if downloaded.insert(reference).inserted {
+                    try await downloadRequired(
+                        rootURL.appending(path: relativePath),
+                        to: snapshotURL.appending(path: relativePath),
+                    )
+                }
+                current = try parentReference(
+                    of: repository.manifest(for: reference),
+                    at: reference,
+                )
             }
-            let relativePath = manifestRelativePath(reference)
-            try await downloadRequired(
-                rootURL.appending(path: relativePath),
-                to: snapshotURL.appending(path: relativePath),
-            )
-            current = try parentReference(
-                of: repository.manifest(for: reference),
-                at: reference,
-            )
         }
     }
 
@@ -171,6 +194,7 @@ public struct PatchsetSourceResolver: Sendable {
         for resolved: ResolvedPatchset,
         rootURL: URL,
         snapshotURL: URL,
+        downloadedPaths: inout Set<String>,
     ) async throws {
         let features = try resolved.orderedFeatures(in: .includingDevelopment).map(\.id)
         var filenames = Set<String>()
@@ -191,6 +215,9 @@ public struct PatchsetSourceResolver: Sendable {
             let directory = patchsetRelativePath(reference)
             for filename in filenames.sorted() {
                 let relativePath = "\(directory)/\(filename)"
+                guard downloadedPaths.insert(relativePath).inserted else {
+                    continue
+                }
                 _ = try await downloadOptional(
                     rootURL.appending(path: relativePath),
                     to: snapshotURL.appending(path: relativePath),

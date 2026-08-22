@@ -162,9 +162,11 @@ struct CompletionGenerator {
 private extension OptionDefinition {
 
     var acceptsValue: Bool {
-        guard case .value = valueKind else {
+        switch valueKind {
+        case .flag:
             return false
+        case .value, .values:
+            return true
         }
-        return true
     }
 }

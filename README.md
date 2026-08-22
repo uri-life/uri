@@ -114,6 +114,9 @@ uri list ./patches
 uri list ./patches v1.2.3
 uri list ./patches v1.2.3 patch1.0
 uri graph --include-dev --format dot ./patches v1.2.3 patch1.0
+uri diff ./patches \
+  --from v1.2.3 patch1.0 feature-a \
+  --to v1.3.0 patch2.0 feature-a
 
 # Expand one feature (FEATURE is required)
 uri expand ./patches v1.2.3 patch1.0 feature-a /work/project
@@ -132,6 +135,14 @@ dependencies and their regular dependencies. It creates
 `<branch-prefix>/<VERSION>/<PATCHSET>`.
 Both workflows apply each feature in `ANTE`, main, pair-resolution, and `POST`
 order using `git am --3way`.
+
+`diff` reconstructs two features in a temporary upstream clone and compares
+their net effects after applying regular dependencies. It excludes dependency
+changes and development dependencies from the compared effects, flattens each
+feature's commit series, and preserves normal Git patch context and line
+locations. Identical effects produce no output. Local, HTTP, and Git sources
+are supported, and the command does not create operation state or an ephemeral
+workspace.
 
 If a mailbox patch conflicts, resolve and stage the files, then continue or
 abort against the same target:

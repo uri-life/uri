@@ -53,6 +53,7 @@ public struct Git: Sendable {
     public func cloneRepository(
         from remote: String,
         to destinationURL: URL,
+        relativeTo baseURL: URL? = nil,
         options: GitCloneOptions = .init(),
     ) async throws -> GitRepository {
         guard !remote.isEmpty, !remote.contains(where: { $0.isNewline }) else {
@@ -83,7 +84,10 @@ public struct Git: Sendable {
             arguments.append("--shared")
         }
         arguments += ["--", remote, destinationURL.path]
-        let output = try await process.run(arguments: arguments)
+        let output = try await process.run(
+            arguments: arguments,
+            currentDirectoryURL: baseURL,
+        )
         guard output.exitStatus == 0 else {
             throw GitError.commandFailed(
                 arguments: arguments,
@@ -94,5 +98,38 @@ public struct Git: Sendable {
         }
 
         return try await openRepository(at: destinationURL)
+    }
+
+    /// Returns a unified no-index diff, treating Git's difference status as success.
+    public func diffFiles(
+        _ firstURL: URL,
+        _ secondURL: URL,
+    ) async throws -> Data {
+        let arguments = [
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--unified=3",
+            "--",
+            firstURL.path,
+            secondURL.path,
+        ]
+        let output = try await process.run(arguments: arguments)
+        switch output.exitStatus {
+        case 0:
+            return Data()
+        case 1:
+            return output.standardOutput
+        default:
+            throw GitError.commandFailed(
+                arguments: arguments,
+                exitStatus: output.exitStatus,
+                standardOutput: output.standardOutput,
+                standardError: output.standardError,
+            )
+        }
     }
 }

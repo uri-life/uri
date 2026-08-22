@@ -15,10 +15,45 @@ struct CompletionEngineTests {
         let engine = CompletionEngine()
 
         #expect(values(engine.complete(["ap"])) == ["apply"])
+        #expect(values(engine.complete(["di"])) == ["diff"])
         #expect(values(engine.complete(["--color", "al"])) == ["always"])
         #expect(values(engine.complete(["graph", "--format=d"])) == ["--format=dot"])
         #expect(values(engine.complete(["list", "--ep"])) == ["--ephemeral"])
         #expect(values(engine.complete(["list", "--pa"])).isEmpty)
+    }
+
+    @Test
+    func `diff operands complete local versions patchsets features and the missing option`() throws {
+        let fixture = try CompletionFixture()
+        defer { fixture.remove() }
+
+        #expect(
+            values(fixture.engine.complete(["diff", "--from", ""]))
+                .contains(["v1", "v2"]),
+        )
+        #expect(
+            values(fixture.engine.complete(["diff", "--from", "v1", ""]))
+                .contains(["base", "child", "open"]),
+        )
+        #expect(
+            values(fixture.engine.complete(["diff", "--from", "v1", "open", ""]))
+                .contains(["direct-open", "inherited"]),
+        )
+        #expect(
+            values(
+                fixture.engine.complete([
+                    "diff", "--from", "v1", "open", "direct-open", "--t",
+                ]),
+            ) == ["--to"],
+        )
+        #expect(
+            values(
+                fixture.engine.complete([
+                    "diff", "--from", "v1", "open", "direct-open",
+                    "--to", "v2", "",
+                ]),
+            ) == ["other"],
+        )
     }
 
     @Test

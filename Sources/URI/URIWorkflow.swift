@@ -472,6 +472,8 @@ public struct URIWorkflow {
                             for: featureID,
                             inheritedBy: reference,
                         ),
+                        sourceRepository: sourceRepository,
+                        reference: reference,
                         phase: .ante,
                         featureID: featureID,
                         index: index,
@@ -502,6 +504,8 @@ public struct URIWorkflow {
                             for: featureID,
                             inheritedBy: reference,
                         ),
+                        sourceRepository: sourceRepository,
+                        reference: reference,
                         phase: .post,
                         featureID: featureID,
                         index: index,
@@ -573,6 +577,8 @@ public struct URIWorkflow {
 
     private func apply(
         patch: PatchFile?,
+        sourceRepository: PatchsetRepository,
+        reference: PatchsetReference,
         phase: OperationState.Phase,
         featureID: String,
         index: Int,
@@ -584,10 +590,12 @@ public struct URIWorkflow {
         state.currentIndex = index
         state.phase = phase
         try stateStore.save(state, to: stateURL)
-        guard let patch, try !Data(contentsOf: patch.url).isEmpty else {
-            return
-        }
-        let result = try await repository.applyMailboxPatch(at: patch.url, committer: committer)
+        let result = try await PatchApplicator(
+            sourceRepository: sourceRepository,
+            reference: reference,
+            repository: repository,
+            committer: committer,
+        ).apply(patch)
         guard result == .applied else {
             throw URIError.conflict(
                 "Conflict while applying \(featureID) \(phase.rawValue) patch. Resolve it, stage the files, then continue.",
@@ -609,21 +617,18 @@ public struct URIWorkflow {
         state.currentIndex = index
         state.phase = .main
         try stateStore.save(state, to: stateURL)
-        guard let patch, try !Data(contentsOf: patch.url).isEmpty else {
-            return
-        }
-        let result = try await repository.applyMailboxPatch(at: patch.url, committer: committer)
-        guard result == .conflicted else {
-            return
-        }
         let completed = Array(state.featureOrder.prefix(index))
-        if let resolution = try sourceRepository.applicablePairResolutionPatch(
-            for: featureID,
+        let result = try await PatchApplicator(
+            sourceRepository: sourceRepository,
+            reference: reference,
+            repository: repository,
+            committer: committer,
+        ).applyMain(
+            patch,
+            featureID: featureID,
             completedFeatureIDs: completed,
-            inheritedBy: reference,
-        ) {
-            _ = try await repository.applyResolutionPatch(at: resolution.url)
-            try await repository.continueMailboxApply(committer: committer)
+        )
+        guard result == .conflicted else {
             return
         }
         throw URIError.conflict(

@@ -14,6 +14,8 @@ enum CommandID: String, CaseIterable, Equatable {
 
     case graph
 
+    case diff
+
     case expand
 
     case apply
@@ -40,6 +42,8 @@ enum OptionID: Equatable, Hashable {
     case includeDevelopment
     case development
     case format
+    case from
+    case to
     case continueOperation
     case abortOperation
     case noDevelopment
@@ -67,6 +71,8 @@ enum OptionID: Equatable, Hashable {
         case .includeDevelopment: "include-dev"
         case .development: "dev"
         case .format: "format"
+        case .from: "from"
+        case .to: "to"
         case .continueOperation: "continue"
         case .abortOperation: "abort"
         case .noDevelopment: "no-dev"
@@ -95,6 +101,8 @@ enum OptionValueKind: Equatable {
     case flag
 
     case value(name: String, allowedValues: [String] = [])
+
+    case values(names: [String])
 }
 
 struct EphemeralTargetDefinition: Equatable {
@@ -158,6 +166,21 @@ struct OptionDefinition: Equatable {
             return names
         case .value(let name, _):
             return "\(names) <\(name)>"
+        case .values(let valueNames):
+            return ([names] + valueNames.map({ "<\($0)>" }))
+                .joined(separator: " ")
+        }
+    }
+
+    var requiredUsage: String {
+        let token = "--\(longName)"
+        switch valueKind {
+        case .flag:
+            return token
+        case .value(let name, _):
+            return "\(token) \(name.uppercased())"
+        case .values(let names):
+            return ([token] + names).joined(separator: " ")
         }
     }
 }
@@ -273,7 +296,8 @@ struct UsageRenderer {
 
     func render(_ command: CommandDefinition) -> [String] {
         command.forms.map({ form in
-            (["uri", command.name] + form.elements.map(render)).joined(separator: " ")
+            (["uri", command.name] + form.elements.map({ render($0, in: command) }))
+                .joined(separator: " ")
         })
     }
 
@@ -281,12 +305,18 @@ struct UsageRenderer {
         (["uri"] + root.elements.map(render)).joined(separator: " ")
     }
 
-    private func render(_ element: CommandFormElement) -> String {
+    private func render(
+        _ element: CommandFormElement,
+        in command: CommandDefinition,
+    ) -> String {
         switch element {
         case .argument(let argument):
             return argument.usage
         case .requiredOption(let option):
-            return "--\(option.longName)"
+            guard let definition = command.options.first(where: { $0.id == option }) else {
+                fatalError("Every required option must have a definition.")
+            }
+            return definition.requiredUsage
         case .oneOf(let options):
             return "(" + options.map({ "--\($0.longName)" }).joined(separator: "|") + ")"
         }
@@ -304,6 +334,8 @@ struct UsageRenderer {
                 return "[--\(option.longName)]"
             case .value(let name, _):
                 return "[--\(option.longName) <\(name)>]"
+            case .values(let names):
+                return "[--\(option.longName) \(names.map({ "<\($0)>" }).joined(separator: " "))]"
             }
         case .command:
             return "<command>"
@@ -483,6 +515,33 @@ enum CommandCatalog {
                     .format,
                     valueKind: .value(name: "format", allowedValues: ["tree", "dot"]),
                     help: "Output format: tree or dot. (default: tree)",
+                ),
+            ],
+        ),
+        CommandDefinition(
+            id: .diff,
+            abstract: "Compare the net effects of two features.",
+            forms: [
+                .init(
+                    id: .primary,
+                    elements: [
+                        .argument(source()),
+                        .requiredOption(.from),
+                        .requiredOption(.to),
+                    ],
+                    allowedOptions: [.from, .to],
+                )
+            ],
+            options: [
+                .init(
+                    .from,
+                    valueKind: .values(names: ["VERSION", "PATCHSET", "FEATURE"]),
+                    help: "The feature effect to compare from.",
+                ),
+                .init(
+                    .to,
+                    valueKind: .values(names: ["VERSION", "PATCHSET", "FEATURE"]),
+                    help: "The feature effect to compare to.",
                 ),
             ],
         ),

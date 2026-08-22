@@ -17,6 +17,7 @@ struct CommandGrammarTests {
             "uri list [SOURCE] [VERSION] [PATCHSET]",
             "uri list --ephemeral",
             "uri graph [SOURCE] VERSION PATCHSET",
+            "uri diff [SOURCE] --from VERSION PATCHSET FEATURE --to VERSION PATCHSET FEATURE",
             "uri expand [SOURCE] VERSION PATCHSET FEATURE [TARGET]",
             "uri expand [TARGET] (--continue|--abort)",
             "uri apply [SOURCE] VERSION PATCHSET [TARGET]",

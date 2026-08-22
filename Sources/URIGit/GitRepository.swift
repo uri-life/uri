@@ -221,14 +221,26 @@ public struct GitRepository: Sendable {
         }
     }
 
-    public func fetchTag(_ name: String) async throws {
+    public func fetchTag(
+        _ name: String,
+        depth: Int? = nil,
+    ) async throws {
         try await validateTagName(name)
-        _ = try await run([
+        var arguments = [
             "fetch",
             "--no-tags",
+        ]
+        if let depth {
+            guard depth > 0 else {
+                throw GitError.invalidReference(String(depth))
+            }
+            arguments += ["--depth", String(depth)]
+        }
+        arguments += [
             "origin",
             "refs/tags/\(name):refs/tags/\(name)",
-        ])
+        ]
+        _ = try await run(arguments)
     }
 
     public func gitPath(_ component: String) async throws -> URL {
@@ -386,6 +398,24 @@ public struct GitRepository: Sendable {
         default:
             throw commandFailure(result)
         }
+    }
+
+    /// Returns the binary-capable tree diff between two references.
+    public func diff(
+        from first: GitReference,
+        to second: GitReference,
+    ) async throws -> Data {
+        try await run([
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--unified=3",
+            first.rawValue,
+            second.rawValue,
+            "--",
+        ]).standardOutput
     }
 
     public func applyMailboxPatch(
