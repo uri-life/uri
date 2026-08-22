@@ -9,27 +9,35 @@ struct List {
 
         case hierarchy([String])
 
-        case ephemeral
+        case ephemeral(source: String?)
     }
 
     let mode: Mode
+
+    private let currentDirectoryURL: URL
 
     private let ephemeralListings: () throws -> [EphemeralListing]
 
     init(
         mode: Mode,
+        currentDirectoryURL: URL = CLI.currentDirectoryURL,
         ephemeralListings: @escaping () throws -> [EphemeralListing] = {
             try EphemeralWorkspaceManager().list()
         },
     ) {
         self.mode = mode
+        self.currentDirectoryURL = currentDirectoryURL.standardizedFileURL
         self.ephemeralListings = ephemeralListings
     }
 
     func run(terminal: Terminal) async throws {
-        guard case .hierarchy(let values) = mode else {
-            try listEphemeral(terminal: terminal)
+        let values: [String]
+        switch mode {
+        case .ephemeral(let source):
+            try listEphemeral(source: source, terminal: terminal)
             return
+        case .hierarchy(let hierarchyValues):
+            values = hierarchyValues
         }
         let (source, arguments) = try CLI.sourceAndArguments(values)
         guard arguments.count <= 2 else {
@@ -69,8 +77,22 @@ struct List {
         }
     }
 
-    private func listEphemeral(terminal: Terminal) throws {
-        let listings = try ephemeralListings()
+    private func listEphemeral(
+        source sourceValue: String?,
+        terminal: Terminal,
+    ) throws {
+        let source = try sourceValue.map({ value in
+            try PatchsetSourceLocator.locate(
+                value,
+                currentDirectoryURL: currentDirectoryURL,
+            )
+        })
+        let listings = try ephemeralListings().filter({ listing in
+            guard let source else {
+                return true
+            }
+            return sameRoot(listing.state.source, source)
+        })
         if !listings.isEmpty {
             terminal.output(
                 "ID\tMODE\tVERSION\tPATCHSET\tFEATURE\tSOURCE\tPATH",
@@ -92,6 +114,28 @@ struct List {
                 machineReadable: true,
             )
         }
+    }
+
+    private func sameRoot(
+        _ first: PatchsetSource,
+        _ second: PatchsetSource,
+    ) -> Bool {
+        guard first.kind == second.kind else {
+            return false
+        }
+        switch first.kind {
+        case .local:
+            guard let firstRoot = first.localRootURL, let secondRoot = second.localRootURL else {
+                return false
+            }
+            return canonicalPath(firstRoot) == canonicalPath(secondRoot)
+        case .http, .git:
+            return first.original == second.original
+        }
+    }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
 

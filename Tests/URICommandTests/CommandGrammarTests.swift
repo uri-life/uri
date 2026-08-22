@@ -15,7 +15,7 @@ struct CommandGrammarTests {
             "uri exclude [SOURCE] VERSION PATCHSET FEATURE",
             "uri include [SOURCE] VERSION PATCHSET FEATURE",
             "uri list [SOURCE] [VERSION] [PATCHSET]",
-            "uri list --ephemeral",
+            "uri list --ephemeral [SOURCE]",
             "uri graph [SOURCE] VERSION PATCHSET",
             "uri diff [SOURCE] --from VERSION PATCHSET FEATURE --to VERSION PATCHSET FEATURE",
             "uri expand [SOURCE] VERSION PATCHSET FEATURE [TARGET]",
@@ -49,11 +49,16 @@ struct CommandGrammarTests {
     }
 
     @Test
-    func `list ephemeral spelling is a value-less option without a TARGET`() {
+    func `list ephemeral spelling is a value-less option followed by an optional SOURCE`() {
         let command = CommandCatalog.command(named: "list")!
         let option = command.options.first(where: { $0.id == .listEphemeral })
+        let form = command.forms.first(where: { $0.id == .ephemeralList })
+        let primaryForm = command.forms.first(where: { $0.id == .primary })
 
         #expect(option?.valueKind == .flag)
+        #expect(form?.arguments.map(\.id) == [.source])
+        #expect(form?.arguments.first?.valueKind == .source)
+        #expect(primaryForm?.arguments.first?.valueKind == .source)
         #expect(command.ephemeralTarget == nil)
         #expect(!command.arguments.contains(where: { $0.id == .target }))
     }

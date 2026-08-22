@@ -83,6 +83,15 @@ struct CompletionEngineTests {
     }
 
     @Test
+    func `general SOURCE completion accepts dot tilde and slash-bearing paths`() {
+        let engine = CompletionEngine()
+
+        for prefix in [".", "~", "nested/path", "path/"] {
+            #expect(engine.complete(["graph", prefix]).contains(.directories))
+        }
+    }
+
+    @Test
     func `feature candidates distinguish direct inherited excluded and active features`() throws {
         let fixture = try CompletionFixture()
         defer { fixture.remove() }
@@ -175,7 +184,19 @@ struct CompletionEngineTests {
                 == ["--ephemeral=peach"],
         )
         #expect(values(fixture.engine.complete(["vanish", "pe"])) == ["peach"])
-        #expect(!values(fixture.engine.complete(["list", "--ephemeral", ""])).contains("peach"))
+    }
+
+    @Test
+    func `list ephemeral completes general local SOURCE paths without suggesting workspace IDs`() throws {
+        let fixture = try CompletionFixture()
+        defer { fixture.remove() }
+
+        for prefix in [".", "~", "nested/path", "path/"] {
+            let records = fixture.engine.complete(["list", "--ephemeral", prefix])
+
+            #expect(records.contains(.directories))
+            #expect(!values(records).contains("peach"))
+        }
     }
 
     @Test

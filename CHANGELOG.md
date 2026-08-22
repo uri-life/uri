@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Added `diff --from VERSION PATCHSET FEATURE --to VERSION PATCHSET FEATURE`
   to compare feature effects across upstream and patchset versions.
+- `.`, `~`, and values containing `/` can now be used directly as local SOURCE
+  paths by every command.
+- `list --ephemeral [SOURCE]` can now limit the workspace table to ephemeral
+  workspaces created from one patchset root.
 
 ## [2.0.0-rc.4] - 2026-08-21
 

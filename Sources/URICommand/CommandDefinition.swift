@@ -492,12 +492,18 @@ enum CommandCatalog {
                 ]),
                 .init(
                     id: .ephemeralList,
-                    elements: [.requiredOption(.listEphemeral)],
+                    elements: [
+                        .requiredOption(.listEphemeral),
+                        .argument(source()),
+                    ],
                     allowedOptions: [.listEphemeral],
                 ),
             ],
             options: [
-                .init(.listEphemeral, help: "List all ephemeral workspaces.")
+                .init(
+                    .listEphemeral,
+                    help: "List ephemeral workspaces, optionally filtered by SOURCE.",
+                )
             ],
         ),
         CommandDefinition(
@@ -652,7 +658,7 @@ enum CommandCatalog {
             id: .source,
             optional: true,
             valueKind: .source,
-            help: "An explicit local path or supported source URL; omit to discover it.",
+            help: "An explicit local path (., ~, or containing /) or supported source URL; omit to use the command form's default.",
         )
     }
 

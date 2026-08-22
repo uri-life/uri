@@ -123,10 +123,7 @@ public enum PatchsetSourceLocator {
     }
 
     private static func isExplicitLocalPath(_ value: String) -> Bool {
-        value.hasPrefix("/")
-            || value.hasPrefix("./")
-            || value.hasPrefix("../")
-            || value.hasPrefix("~/")
+        value == "." || value == "~" || value.contains("/")
     }
 
     private static func isHTTP(_ value: String) -> Bool {

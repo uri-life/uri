@@ -690,7 +690,7 @@ struct CommandParser {
         case .list:
             let mode: List.Mode =
                 arguments.form.id == .ephemeralList
-                ? .ephemeral
+                ? .ephemeral(source: split.source)
                 : .hierarchy(values)
             return .list(.init(mode: mode))
         case .graph:

@@ -11,7 +11,9 @@ struct URITests {
         #expect(PatchsetSourceLocator.recognizesExplicitSource("https://example.com/patches"))
         #expect(PatchsetSourceLocator.recognizesExplicitSource("git+https://example.com/patches.git"))
         #expect(PatchsetSourceLocator.recognizesExplicitSource("git@example.com:patches.git"))
-        #expect(PatchsetSourceLocator.recognizesExplicitSource("../patches"))
+        for value in [".", "~", "/", "nested/path", "path/", "../patches"] {
+            #expect(PatchsetSourceLocator.recognizesExplicitSource(value))
+        }
         #expect(!PatchsetSourceLocator.recognizesExplicitSource("v4.5.0"))
 
         let http = try PatchsetSourceLocator.locate(
@@ -39,6 +41,17 @@ struct URITests {
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         try Data("features: {}\n".utf8).write(to: nested.appending(path: "manifest.yaml"))
 
+        for (source, currentDirectoryURL) in [
+            (".", nested),
+            ("versions/v1/patches/p1", root),
+            ("versions/", root),
+        ] {
+            let located = try PatchsetSourceLocator.locate(
+                source,
+                currentDirectoryURL: currentDirectoryURL,
+            )
+            #expect(located.localRootURL == root)
+        }
         #expect(try PatchsetSourceLocator.discoverLocalRoot(from: nested) == root)
     }
 

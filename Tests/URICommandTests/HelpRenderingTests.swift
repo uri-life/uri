@@ -8,6 +8,28 @@ import URICommand
 struct HelpRenderingTests {
 
     @Test
+    func `list help renders the optional ephemeral SOURCE filter`() async {
+        let capture = CommandOutputCapture()
+        let code = await URICommand.run(
+            arguments: ["--color", "never", "list", "--help"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
+        )
+
+        #expect(code == 0)
+        #expect(capture.standardOutput.contains("uri list --ephemeral [SOURCE]"))
+        #expect(
+            capture.standardOutput.contains(
+                "List ephemeral workspaces, optionally filtered by SOURCE.",
+            ),
+        )
+        #expect(
+            capture.standardOutput.contains(
+                "An explicit local path (., ~, or containing /)",
+            ),
+        )
+    }
+
+    @Test
     func `diff help renders both required feature operands`() async {
         let capture = CommandOutputCapture()
         let code = await URICommand.run(

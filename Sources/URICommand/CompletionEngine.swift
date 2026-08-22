@@ -979,10 +979,7 @@ struct CompletionEngine {
     }
 
     private func isExplicitLocalPrefix(_ value: String) -> Bool {
-        value.hasPrefix("/")
-            || value.hasPrefix("./")
-            || value.hasPrefix("../")
-            || value.hasPrefix("~/")
+        value == "." || value == "~" || value.contains("/")
     }
 
     private func normalized(_ records: [CompletionRecord]) -> [CompletionRecord] {

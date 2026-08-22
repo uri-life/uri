@@ -75,9 +75,11 @@ patch file.
 
 Commands that read a patchset accept a leading optional `[SOURCE]`:
 
-- `/absolute/path`, `./relative/path`, `../relative/path`, and `~/path` select
-  a local patchset. Without SOURCE, `uri` searches ancestors of the current
-  directory for the root `manifest.yaml`.
+- `.`, `~`, and any non-URL value containing `/` select a local patchset path.
+  This includes absolute and relative spellings such as `/absolute/path`,
+  `nested/path`, `path/`, `./relative/path`, `../relative/path`, and `~/path`.
+  Without SOURCE, `uri` searches ancestors of the current directory for the
+  root `manifest.yaml`.
 - `http://` and `https://` select a public static patchset root. `uri` reads
   `manifest.yaml` and the required `versions/...` files below that URL.
 - `git+https://`, `git+ssh://`, `ssh://`, `git://`, and SCP syntax select a Git
@@ -194,12 +196,14 @@ name for `<REPOSITORY>`. They clone exactly VERSION with
 
 ```sh
 uri list --ephemeral
+uri list --ephemeral .
 uri vanish peach
 uri vanish peach --force
 ```
 
-`list --ephemeral` always prints the complete workspace table. It does not
-accept an ID; use `vanish ID` or a workflow TARGET to select one workspace.
+`list --ephemeral [SOURCE]` lists managed workspaces, optionally limited to
+those created from `SOURCE`. `SOURCE` identifies a patchset source, not a
+workspace ID.
 
 With no ID, `vanish` chooses the only workspace, prompts when several exist on
 a TTY, and errors in non-interactive use. A normal vanish requires a clean

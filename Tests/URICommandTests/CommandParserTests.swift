@@ -213,20 +213,39 @@ struct CommandParserTests {
     }
 
     @Test
-    func `list ephemeral is a value-less mode distinct from workflow TARGET`() throws {
+    func `list ephemeral accepts an optional general SOURCE in either option order`() throws {
         let invocation = try CommandParser().parse(["list", "--ephemeral"])
         guard case .run(.list(let command)) = invocation.action else {
             Issue.record("Expected list command.")
             return
         }
-        #expect(command.mode == .ephemeral)
+        #expect(command.mode == .ephemeral(source: nil))
+
+        let examples = [
+            (["list", "--ephemeral", "."], "."),
+            (["list", "--ephemeral", "~"], "~"),
+            (["list", "--ephemeral", "nested/patches"], "nested/patches"),
+            (["list", "--ephemeral", "./patches"], "./patches"),
+            (["list", "./patches", "--ephemeral"], "./patches"),
+            (["list", "--ephemeral", "https://example.com/patches/"], "https://example.com/patches/"),
+            (["list", "--ephemeral", "git+https://example.com/patches.git"], "git+https://example.com/patches.git"),
+        ]
+        for (arguments, source) in examples {
+            let invocation = try CommandParser().parse(arguments)
+            guard case .run(.list(let command)) = invocation.action else {
+                Issue.record("Expected list command.")
+                continue
+            }
+            #expect(command.mode == .ephemeral(source: source))
+        }
 
         let invalidExamples = [
             ["list", "--ephemeral", "peach"],
+            ["list", "--ephemeral", "--", "peach"],
             ["list", "--ephemeral=peach"],
+            ["list", "--ephemeral", "./patches", "extra"],
             ["list", "--path"],
             ["list", "v1", "p1", "--ephemeral"],
-            ["list", "--ephemeral", "--", "peach"],
         ]
         for arguments in invalidExamples {
             #expect(throws: CommandUsageError.self) {
@@ -343,9 +362,11 @@ struct CommandParserTests {
     }
 
     @Test
-    func `source overloading consumes only a recognized leading source`() {
+    func `source overloading consumes dot tilde and slash-bearing leading sources`() {
         #expect(CLI.splitSource(["v1", "p1"]).source == nil)
-        #expect(CLI.splitSource(["./patches", "v1", "p1"]).source == "./patches")
+        for source in [".", "~", "/", "nested/path", "path/", "./patches"] {
+            #expect(CLI.splitSource([source, "v1", "p1"]).source == source)
+        }
         #expect(
             CLI.splitSource(["git+https://example.com/p.git", "v1", "p1"]).rest
                 == ["v1", "p1"],
