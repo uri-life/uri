@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.0.0-rc.5] - 2026-08-22
+
 ### Added
 
 - Added `diff --from VERSION PATCHSET FEATURE --to VERSION PATCHSET FEATURE`
@@ -97,7 +99,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Restored 1.x root manifest compatibility for the `branch-prefix` wire key and
   the legacy `uri` branch prefix and `URI <uri@uri.life>` committer defaults.
 
-[Unreleased]: https://github.com/uri-life/uri/compare/v2.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/uri-life/uri/compare/v2.0.0-rc.5...HEAD
+[2.0.0-rc.5]: https://github.com/uri-life/uri/releases/tag/v2.0.0-rc.5
 [2.0.0-rc.4]: https://github.com/uri-life/uri/releases/tag/v2.0.0-rc.4
 [2.0.0-rc.3]: https://github.com/uri-life/uri/releases/tag/v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/uri-life/uri/releases/tag/v2.0.0-rc.2
