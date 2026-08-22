@@ -28,6 +28,10 @@ public enum URIError: Error, Equatable, Sendable {
 
     case ephemeralNotFound(String)
 
+    case ephemeralInitializing(String)
+
+    case incompleteEphemeral(String)
+
     case unsafeEphemeral(String)
 
     case http(status: Int, url: String)
@@ -61,6 +65,10 @@ extension URIError: CustomStringConvertible {
             return "Ephemeral workspace already exists: \(id)"
         case .ephemeralNotFound(let id):
             return "Ephemeral workspace does not exist: \(id)"
+        case .ephemeralInitializing(let id):
+            return "Ephemeral workspace is still being initialized: \(id)"
+        case .incompleteEphemeral(let id):
+            return "Ephemeral workspace is incomplete; use --force to discard it: \(id)"
         case .http(let status, let url):
             return "HTTP \(status) while reading \(url)"
         }

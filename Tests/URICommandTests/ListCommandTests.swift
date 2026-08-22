@@ -11,12 +11,44 @@ struct ListCommandTests {
     @Test
     func `empty ephemeral mode prints no table`() async throws {
         let capture = CommandOutputCapture()
-        let command = List(mode: .ephemeral(source: nil), ephemeralListings: { [] })
+        let command = List(mode: .ephemeral(source: nil), ephemeralInspections: { [] })
 
         try await command.run(terminal: capture.terminal(colorMode: .never))
 
         #expect(capture.standardOutput.isEmpty)
         #expect(capture.standardError.isEmpty)
+    }
+
+    @Test
+    func `ephemeral mode warns about omitted active incomplete workspaces`() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "ListCommandIncompleteTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory,
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = RuntimePaths(homeURL: root.appending(path: "home"))
+        let manager = EphemeralWorkspaceManager(paths: paths)
+        let initializing = try manager.create(requestedID: "peach")
+        try FileManager.default.createDirectory(
+            at: paths.ephemeralURL(id: "plum"),
+            withIntermediateDirectories: false,
+        )
+        let capture = CommandOutputCapture()
+        let command = List(
+            mode: .ephemeral(source: nil),
+            ephemeralInspections: { try manager.activeWorkspaceInspections() },
+        )
+
+        try await command.run(terminal: capture.terminal(colorMode: .never))
+
+        #expect(capture.standardOutput.isEmpty)
+        #expect(
+            capture.standardError == """
+                warning: Ephemeral workspace peach is still initializing and was omitted.
+                warning: Ephemeral workspace plum is incomplete and was omitted.
+                """ + "\n",
+        )
+        withExtendedLifetime(initializing) {}
     }
 
     @Test
@@ -59,7 +91,7 @@ struct ListCommandTests {
         let capture = CommandOutputCapture()
         let command = List(
             mode: .ephemeral(source: nil),
-            ephemeralListings: { try manager.list() },
+            ephemeralInspections: { try manager.activeWorkspaceInspections() },
         )
 
         try await command.run(terminal: capture.terminal(colorMode: .always))
@@ -128,7 +160,7 @@ struct ListCommandTests {
             let command = List(
                 mode: .ephemeral(source: sourceValue),
                 currentDirectoryURL: selectedRoot,
-                ephemeralListings: { try manager.list() },
+                ephemeralInspections: { try manager.activeWorkspaceInspections() },
             )
 
             try await command.run(terminal: capture.terminal(colorMode: .never))
@@ -168,17 +200,17 @@ struct ListCommandTests {
         let httpCapture = CommandOutputCapture()
         let httpCommand = List(
             mode: .ephemeral(source: "https://example.com/patches/"),
-            ephemeralListings: { try manager.list() },
+            ephemeralInspections: { try manager.activeWorkspaceInspections() },
         )
         let gitCapture = CommandOutputCapture()
         let gitCommand = List(
             mode: .ephemeral(source: "git+https://example.com/patches.git"),
-            ephemeralListings: { try manager.list() },
+            ephemeralInspections: { try manager.activeWorkspaceInspections() },
         )
         let alternateGitCapture = CommandOutputCapture()
         let alternateGitCommand = List(
             mode: .ephemeral(source: "git+ssh://git@example.com/patches.git"),
-            ephemeralListings: { try manager.list() },
+            ephemeralInspections: { try manager.activeWorkspaceInspections() },
         )
 
         try await httpCommand.run(terminal: httpCapture.terminal(colorMode: .never))

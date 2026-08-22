@@ -23,6 +23,9 @@ struct URICommand {
         arguments: [String],
         terminalFactory: (ColorMode) -> Terminal,
     ) async -> Int32 {
+        defer {
+            EphemeralWorkspaceCleanupRegistry.shared.retry()
+        }
         if arguments.first == "--_complete" {
             let terminal = terminalFactory(.never)
             guard arguments.dropFirst().first == "--" else {

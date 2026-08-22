@@ -1,4 +1,6 @@
+import Foundation
 import Testing
+import URI
 
 @testable
 import URICommand
@@ -155,6 +157,40 @@ struct URICommandTests {
         #expect(capture.standardOutput.isEmpty)
         #expect(capture.standardError.contains("error:"))
         #expect(!capture.standardError.contains("usage:"))
+    }
+
+    @Test
+    func `command completion retries deferred ephemeral cleanup without output`() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "URICommandDeferredCleanupTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory,
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let parentURL = root.appending(path: "removal", directoryHint: .isDirectory)
+        let workspaceURL = parentURL.appending(path: "peach", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        try Data("remaining\n".utf8).write(to: workspaceURL.appending(path: "content"))
+        EphemeralWorkspaceCleanupRegistry.shared.schedule(
+            .init(
+                rootURL: workspaceURL,
+                parentURL: parentURL,
+                snapshotURL: nil,
+                paths: .init(homeURL: root.appending(path: "home")),
+                fileOperations: .live,
+            ),
+        )
+        let capture = CommandOutputCapture()
+
+        let code = await URICommand.run(
+            arguments: ["--version"],
+            terminalFactory: { capture.terminal(colorMode: $0) },
+        )
+
+        #expect(code == 0)
+        #expect(!capture.standardOutput.isEmpty)
+        #expect(capture.standardError.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: parentURL.path))
+        #expect(EphemeralWorkspaceCleanupRegistry.shared.pendingCount == 0)
     }
 
     @Test

@@ -60,6 +60,19 @@ public struct URIWorkflow {
         self.operationIndex = .init(paths: paths, git: git)
     }
 
+    package init(
+        git: Git = .init(),
+        paths: RuntimePaths,
+        ephemeralManager: EphemeralWorkspaceManager,
+    ) {
+        self.git = git
+        self.paths = paths
+        self.sourceResolver = .init(git: git, paths: paths)
+        self.ephemeralManager = ephemeralManager
+        self.stateStore = .init()
+        self.operationIndex = .init(paths: paths, git: git)
+    }
+
     public func expand(
         source: PatchsetSource,
         reference: PatchsetReference,
@@ -104,7 +117,7 @@ public struct URIWorkflow {
             )
             return result
         }
-        catch {
+        catch let primaryError {
             let stateExists = (try? await hasOperationState(preparedTarget)) ?? false
             if !stateExists {
                 if let preparedTarget {
@@ -112,10 +125,15 @@ public struct URIWorkflow {
                 }
                 try? sourceResolver.removeSnapshot(at: resolvedSource.snapshotURL)
                 if let workspace = preparedTarget?.workspace {
-                    try? ephemeralManager.removeUninitialized(workspace)
+                    do {
+                        try ephemeralManager.removeUninitialized(workspace)
+                    }
+                    catch {
+                        throw cleanupFailure(primary: primaryError, cleanup: error)
+                    }
                 }
             }
-            throw error
+            throw primaryError
         }
     }
 
@@ -161,7 +179,7 @@ public struct URIWorkflow {
             )
             return result
         }
-        catch {
+        catch let primaryError {
             let stateExists = (try? await hasOperationState(preparedTarget)) ?? false
             if !stateExists {
                 if let preparedTarget {
@@ -169,10 +187,15 @@ public struct URIWorkflow {
                 }
                 try? sourceResolver.removeSnapshot(at: resolvedSource.snapshotURL)
                 if let workspace = preparedTarget?.workspace {
-                    try? ephemeralManager.removeUninitialized(workspace)
+                    do {
+                        try ephemeralManager.removeUninitialized(workspace)
+                    }
+                    catch {
+                        throw cleanupFailure(primary: primaryError, cleanup: error)
+                    }
                 }
             }
-            throw error
+            throw primaryError
         }
     }
 
@@ -438,6 +461,9 @@ public struct URIWorkflow {
             ephemeralID: target.workspace?.id,
         )
         try stateStore.save(state, to: stateURL)
+        if let workspace = target.workspace {
+            ephemeralManager.completeInitialization(workspace)
+        }
         try await repository.checkoutTag(reference.upstreamVersion)
 
         return try await applyRemaining(
@@ -686,9 +712,14 @@ public struct URIWorkflow {
                 try await repository.validateRemote(matches: upstream, relativeTo: sourceBaseURL)
                 return .init(repository: repository, workspace: workspace)
             }
-            catch {
-                try? ephemeralManager.removeUninitialized(workspace)
-                throw error
+            catch let primaryError {
+                do {
+                    try ephemeralManager.removeUninitialized(workspace)
+                }
+                catch {
+                    throw cleanupFailure(primary: primaryError, cleanup: error)
+                }
+                throw primaryError
             }
         }
     }
@@ -763,6 +794,15 @@ public struct URIWorkflow {
         guard state.ephemeralID == target.workspace?.id else {
             throw URIError.invalidState("Saved ephemeral ID does not match the selected TARGET.")
         }
+    }
+
+    private func cleanupFailure(
+        primary: any Error,
+        cleanup: any Error,
+    ) -> URIError {
+        .fileSystem(
+            "\(primary)\nAdditionally, ephemeral workspace cleanup failed: \(cleanup)",
+        )
     }
 
     private func committer(

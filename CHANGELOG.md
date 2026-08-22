@@ -16,6 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `list --ephemeral [SOURCE]` can now limit the workspace table to ephemeral
   workspaces created from one patchset root.
 
+### Fixed
+
+- Ephemeral workspace cleanup now remains recoverable when filesystem deletion
+  is interrupted. `list --ephemeral` omits incomplete workspaces with a warning,
+  and `vanish ID --force` can discard inactive leftovers without affecting
+  workspaces that are still being initialized.
+
 ## [2.0.0-rc.4] - 2026-08-21
 
 ### Added

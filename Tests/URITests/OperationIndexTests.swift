@@ -123,6 +123,21 @@ struct OperationIndexTests {
     }
 
     @Test
+    func `list silently omits initializing and legacy incomplete ephemeral workspaces`() async throws {
+        let fixture = try OperationIndexFixture()
+        defer { fixture.remove() }
+        let manager = EphemeralWorkspaceManager(paths: fixture.paths)
+        let initializing = try manager.create(requestedID: "peach")
+        try FileManager.default.createDirectory(
+            at: fixture.paths.ephemeralURL(id: "plum"),
+            withIntermediateDirectories: false,
+        )
+
+        #expect(try await OperationIndex(paths: fixture.paths).list().isEmpty)
+        withExtendedLifetime(initializing) {}
+    }
+
+    @Test
     func `registration rejects an index root that is not a managed directory`() throws {
         let fixture = try OperationIndexFixture()
         defer { fixture.remove() }

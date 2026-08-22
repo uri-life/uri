@@ -16,18 +16,18 @@ struct List {
 
     private let currentDirectoryURL: URL
 
-    private let ephemeralListings: () throws -> [EphemeralListing]
+    private let ephemeralInspections: () throws -> [EphemeralWorkspaceInspection]
 
     init(
         mode: Mode,
         currentDirectoryURL: URL = CLI.currentDirectoryURL,
-        ephemeralListings: @escaping () throws -> [EphemeralListing] = {
-            try EphemeralWorkspaceManager().list()
+        ephemeralInspections: @escaping () throws -> [EphemeralWorkspaceInspection] = {
+            try EphemeralWorkspaceManager().activeWorkspaceInspections()
         },
     ) {
         self.mode = mode
         self.currentDirectoryURL = currentDirectoryURL.standardizedFileURL
-        self.ephemeralListings = ephemeralListings
+        self.ephemeralInspections = ephemeralInspections
     }
 
     func run(terminal: Terminal) async throws {
@@ -87,7 +87,27 @@ struct List {
                 currentDirectoryURL: currentDirectoryURL,
             )
         })
-        let listings = try ephemeralListings().filter({ listing in
+        let inspections = try ephemeralInspections()
+        for inspection in inspections where inspection.location == .active {
+            switch inspection.status {
+            case .initializing:
+                terminal.warning(
+                    "warning: Ephemeral workspace \(inspection.id) is still initializing and was omitted.",
+                )
+            case .interruptedInitialization, .legacyIncomplete:
+                terminal.warning(
+                    "warning: Ephemeral workspace \(inspection.id) is incomplete and was omitted.",
+                )
+            case .valid, .deferredRemoval:
+                break
+            }
+        }
+        let listings = inspections.compactMap({ inspection -> EphemeralListing? in
+            guard case .valid(let listing) = inspection.status else {
+                return nil
+            }
+            return listing
+        }).filter({ listing in
             guard let source else {
                 return true
             }

@@ -27,6 +27,18 @@ public struct RuntimePaths: Sendable {
             .appending(path: "operations", directoryHint: .isDirectory)
     }
 
+    package var ephemeralInternalURL: URL {
+        ephemeralRootURL.appending(path: ".internal", directoryHint: .isDirectory)
+    }
+
+    package var ephemeralAllocationsURL: URL {
+        ephemeralInternalURL.appending(path: "allocations", directoryHint: .isDirectory)
+    }
+
+    package var ephemeralRemovalsURL: URL {
+        ephemeralInternalURL.appending(path: "removals", directoryHint: .isDirectory)
+    }
+
     public func ephemeralURL(id: String) -> URL {
         ephemeralRootURL.appending(path: id, directoryHint: .isDirectory)
     }
@@ -52,6 +64,10 @@ public struct RuntimePaths: Sendable {
         catch {
             throw URIError.fileSystem("Could not create operation snapshot: \(error)")
         }
+    }
+
+    package func ephemeralInitializationURL(for rootURL: URL) -> URL {
+        rootURL.appending(path: "initialization.json", directoryHint: .notDirectory)
     }
 }
 
