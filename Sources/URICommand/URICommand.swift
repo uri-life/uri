@@ -22,9 +22,10 @@ struct URICommand {
     static func run(
         arguments: [String],
         terminalFactory: (ColorMode) -> Terminal,
+        cleanupRegistry: EphemeralWorkspaceCleanupRegistry = .shared,
     ) async -> Int32 {
         defer {
-            EphemeralWorkspaceCleanupRegistry.shared.retry()
+            cleanupRegistry.retry()
         }
         if arguments.first == "--_complete" {
             let terminal = terminalFactory(.never)

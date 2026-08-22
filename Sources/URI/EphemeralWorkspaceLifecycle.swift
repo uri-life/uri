@@ -245,36 +245,42 @@ package final class EphemeralWorkspaceCleanupRegistry: @unchecked Sendable {
 
     package static let shared = EphemeralWorkspaceCleanupRegistry()
 
-    private let lock = NSLock()
+    private let cleanupsLock = NSLock()
+
+    private let retryLock = NSLock()
 
     private var cleanups = [EphemeralWorkspaceDeferredCleanup]()
+
+    private var inFlightCount = 0
 
     package init() {}
 
     package var pendingCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return cleanups.count
+        cleanupsLock.lock()
+        defer { cleanupsLock.unlock() }
+        return cleanups.count + inFlightCount
     }
 
     package func schedule(_ cleanup: EphemeralWorkspaceDeferredCleanup) {
-        lock.lock()
+        cleanupsLock.lock()
         cleanups.append(cleanup)
-        lock.unlock()
+        cleanupsLock.unlock()
     }
 
     package func retry() {
-        lock.lock()
+        retryLock.lock()
+        defer { retryLock.unlock() }
+
+        cleanupsLock.lock()
         let pending = cleanups
         cleanups.removeAll()
-        lock.unlock()
+        inFlightCount += pending.count
+        cleanupsLock.unlock()
 
         let failed = pending.filter({!$0.perform()})
-        guard !failed.isEmpty else {
-            return
-        }
-        lock.lock()
+        cleanupsLock.lock()
+        inFlightCount -= pending.count
         cleanups.append(contentsOf: failed)
-        lock.unlock()
+        cleanupsLock.unlock()
     }
 }

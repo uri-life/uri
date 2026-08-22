@@ -170,7 +170,8 @@ struct URICommandTests {
         let workspaceURL = parentURL.appending(path: "peach", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
         try Data("remaining\n".utf8).write(to: workspaceURL.appending(path: "content"))
-        EphemeralWorkspaceCleanupRegistry.shared.schedule(
+        let cleanupRegistry = EphemeralWorkspaceCleanupRegistry()
+        cleanupRegistry.schedule(
             .init(
                 rootURL: workspaceURL,
                 parentURL: parentURL,
@@ -184,13 +185,14 @@ struct URICommandTests {
         let code = await URICommand.run(
             arguments: ["--version"],
             terminalFactory: { capture.terminal(colorMode: $0) },
+            cleanupRegistry: cleanupRegistry,
         )
 
         #expect(code == 0)
         #expect(!capture.standardOutput.isEmpty)
         #expect(capture.standardError.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: parentURL.path))
-        #expect(EphemeralWorkspaceCleanupRegistry.shared.pendingCount == 0)
+        #expect(cleanupRegistry.pendingCount == 0)
     }
 
     @Test
